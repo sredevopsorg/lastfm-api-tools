@@ -1,0 +1,3363 @@
+{
+  "components": {
+    "schemas": {
+      "ApplyRequest": {
+        "properties": {
+          "confirm": {
+            "default": false,
+            "description": "must be true: a write is never the default outcome of a request",
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "entity_id": {
+            "description": "id of the archived entity to map from",
+            "title": "Entity Id",
+            "type": "integer"
+          },
+          "entity_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "artist",
+                  "album",
+                  "track"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "defaults to the kind implied by the Jellyfin item",
+            "title": "Entity Kind"
+          },
+          "expected_etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the etag the diff was prepared against; a mismatch is refused",
+            "title": "Expected Etag"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "fields to write; omit to use the plan's default selection",
+            "title": "Fields"
+          },
+          "overrides": {
+            "items": {
+              "$ref": "#/components/schemas/FieldPolicyOverride"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "tag_policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagPolicyRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "entity_id"
+        ],
+        "title": "ApplyRequest",
+        "type": "object"
+      },
+      "ApplyResponse": {
+        "properties": {
+          "applied": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Applied",
+            "type": "array"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "etag_after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Etag After"
+          },
+          "etag_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Etag Before"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "snapshot_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Id"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "unchanged": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unchanged",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item_id",
+          "kind",
+          "applied",
+          "unchanged",
+          "duration_ms"
+        ],
+        "title": "ApplyResponse",
+        "type": "object"
+      },
+      "ArchiveAliasListResponse": {
+        "properties": {
+          "aliases": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveAliasView"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "aliases",
+          "total"
+        ],
+        "title": "ArchiveAliasListResponse",
+        "type": "object"
+      },
+      "ArchiveAliasView": {
+        "description": "A recorded Last.fm autocorrect.\n\n``requested`` is the normalised name as asked, ``canonical_name`` what Last.fm\nanswered with, so a known misspelling can skip a request next time.",
+        "properties": {
+          "canonical_artist_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Artist Id"
+          },
+          "canonical_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Name"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "requested": {
+            "title": "Requested",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requested"
+        ],
+        "title": "ArchiveAliasView",
+        "type": "object"
+      },
+      "ArchiveEntityDetail": {
+        "description": "One entity, with tags and similarity expanded.\n\nDeliberately *not* a subclass of the summary. Its ``tags`` are objects with rank and\ncount where the summary's are strings, and narrowing a field's type in a subclass is\nnot a legal override -- mypy rejected it, which is the correct answer rather than an\ninconvenience. Two shapes that differ this much are two models.",
+        "properties": {
+          "extra": {
+            "additionalProperties": true,
+            "title": "Extra",
+            "type": "object"
+          },
+          "first_seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "latest_response_id": {
+            "title": "Latest Response Id",
+            "type": "string"
+          },
+          "listeners": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listeners"
+          },
+          "mbid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mbid"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "overview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overview"
+          },
+          "playcount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playcount"
+          },
+          "similar": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveSimilarityView"
+            },
+            "title": "Similar",
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveTagView"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "identity",
+          "kind",
+          "name",
+          "latest_response_id"
+        ],
+        "title": "ArchiveEntityDetail",
+        "type": "object"
+      },
+      "ArchiveEntityListResponse": {
+        "description": "A page of archived entities.\n\nThe field names match what the endpoint has always returned. Writing them from\nmemory instead of reading the code produced a model that rejected every real\nresponse -- which is precisely why these shapes are worth declaring.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveEntitySummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "ArchiveEntityListResponse",
+        "type": "object"
+      },
+      "ArchiveEntitySummary": {
+        "description": "A list row: tags are bare names, because the list has no room for counts.",
+        "properties": {
+          "extra": {
+            "additionalProperties": true,
+            "title": "Extra",
+            "type": "object"
+          },
+          "first_seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "latest_response_id": {
+            "title": "Latest Response Id",
+            "type": "string"
+          },
+          "listeners": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listeners"
+          },
+          "mbid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mbid"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "overview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overview"
+          },
+          "playcount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playcount"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "identity",
+          "kind",
+          "name",
+          "latest_response_id"
+        ],
+        "title": "ArchiveEntitySummary",
+        "type": "object"
+      },
+      "ArchiveInfo": {
+        "properties": {
+          "cap_bytes": {
+            "title": "Cap Bytes",
+            "type": "integer"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "log_requests": {
+            "title": "Log Requests",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "log_requests",
+          "cap_bytes"
+        ],
+        "title": "ArchiveInfo",
+        "type": "object"
+      },
+      "ArchiveSimilarityView": {
+        "properties": {
+          "match": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match"
+          },
+          "mbid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mbid"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rank"
+        ],
+        "title": "ArchiveSimilarityView",
+        "type": "object"
+      },
+      "ArchiveStatsResponse": {
+        "properties": {
+          "cap_bytes": {
+            "title": "Cap Bytes",
+            "type": "integer"
+          },
+          "derived": {
+            "$ref": "#/components/schemas/DerivedCounts"
+          },
+          "headroom_bytes": {
+            "title": "Headroom Bytes",
+            "type": "integer"
+          },
+          "observations": {
+            "title": "Observations",
+            "type": "integer"
+          },
+          "oldest_request_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Request At"
+          },
+          "partitions": {
+            "items": {
+              "$ref": "#/components/schemas/PartitionUsage"
+            },
+            "title": "Partitions",
+            "type": "array"
+          },
+          "payload_bytes": {
+            "title": "Payload Bytes",
+            "type": "integer"
+          },
+          "reads": {
+            "$ref": "#/components/schemas/ReadMetricsView"
+          },
+          "request_rows": {
+            "title": "Request Rows",
+            "type": "integer"
+          },
+          "response_rows": {
+            "title": "Response Rows",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "ok",
+              "warning",
+              "cap_reached"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stray_archive_reads": {
+            "title": "Stray Archive Reads",
+            "type": "integer"
+          },
+          "used_ratio": {
+            "title": "Used Ratio",
+            "type": "number"
+          },
+          "warn_bytes": {
+            "title": "Warn Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "payload_bytes",
+          "cap_bytes",
+          "warn_bytes",
+          "used_ratio",
+          "headroom_bytes",
+          "state",
+          "response_rows",
+          "observations",
+          "request_rows",
+          "stray_archive_reads",
+          "reads",
+          "derived",
+          "partitions"
+        ],
+        "title": "ArchiveStatsResponse",
+        "type": "object"
+      },
+      "ArchiveTagCountView": {
+        "properties": {
+          "entity_count": {
+            "title": "Entity Count",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "norm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Norm"
+          }
+        },
+        "required": [
+          "name",
+          "entity_count"
+        ],
+        "title": "ArchiveTagCountView",
+        "type": "object"
+      },
+      "ArchiveTagListResponse": {
+        "properties": {
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveTagCountView"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tags",
+          "total"
+        ],
+        "title": "ArchiveTagListResponse",
+        "type": "object"
+      },
+      "ArchiveTagView": {
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rank"
+        ],
+        "title": "ArchiveTagView",
+        "type": "object"
+      },
+      "BulkApplyRequest": {
+        "properties": {
+          "confirm": {
+            "default": false,
+            "description": "must be true",
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "fields to write; omit to use each item's default selection, which is empty for anything needing review",
+            "title": "Fields"
+          },
+          "job_id": {
+            "description": "from a /bulk/diff run",
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "BulkApplyRequest",
+        "type": "object"
+      },
+      "BulkDiffRequest": {
+        "properties": {
+          "min_confidence": {
+            "default": 0.0,
+            "description": "skip items whose best candidate scores below this",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Min Confidence",
+            "type": "number"
+          },
+          "overrides": {
+            "items": {
+              "$ref": "#/components/schemas/FieldPolicyOverride"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/BulkSelection",
+            "default": {
+              "kind": "artist",
+              "limit": 50,
+              "missing_metadata": false
+            }
+          },
+          "tag_policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagPolicyRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "BulkDiffRequest",
+        "type": "object"
+      },
+      "BulkJobListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/BulkJobSummary"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs",
+          "count"
+        ],
+        "title": "BulkJobListResponse",
+        "type": "object"
+      },
+      "BulkJobSummary": {
+        "properties": {
+          "applicable": {
+            "title": "Applicable",
+            "type": "integer"
+          },
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "batch_id",
+          "items",
+          "applicable",
+          "skipped",
+          "created_at",
+          "applied"
+        ],
+        "title": "BulkJobSummary",
+        "type": "object"
+      },
+      "BulkSelection": {
+        "description": "Which items, and nothing else. The fields to write are chosen after review.",
+        "properties": {
+          "ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "explicit item ids, if known",
+            "title": "Ids"
+          },
+          "kind": {
+            "default": "artist",
+            "enum": [
+              "artist",
+              "album",
+              "song"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "missing_metadata": {
+            "default": false,
+            "description": "only items lacking genres, provider ids or an overview",
+            "title": "Missing Metadata",
+            "type": "boolean"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
+          }
+        },
+        "title": "BulkSelection",
+        "type": "object"
+      },
+      "CandidateSummary": {
+        "properties": {
+          "artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist"
+          },
+          "mbid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mbid"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "response_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Id"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CandidateSummary",
+        "type": "object"
+      },
+      "CandidateTagView": {
+        "properties": {
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CandidateTagView",
+        "type": "object"
+      },
+      "CandidateView": {
+        "properties": {
+          "artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/ConfidenceView"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "integer"
+          },
+          "entity_kind": {
+            "enum": [
+              "artist",
+              "album",
+              "track"
+            ],
+            "title": "Entity Kind",
+            "type": "string"
+          },
+          "has_overview": {
+            "default": false,
+            "title": "Has Overview",
+            "type": "boolean"
+          },
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "latest_response_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Response Id"
+          },
+          "listeners": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listeners"
+          },
+          "matched_on": {
+            "enum": [
+              "mbid",
+              "name"
+            ],
+            "title": "Matched On",
+            "type": "string"
+          },
+          "mbid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mbid"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "playcount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Playcount"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateTagView"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "entity_kind",
+          "entity_id",
+          "identity",
+          "name",
+          "matched_on",
+          "confidence"
+        ],
+        "title": "CandidateView",
+        "type": "object"
+      },
+      "CandidatesRequest": {
+        "properties": {
+          "limit": {
+            "default": 5,
+            "maximum": 25.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "refresh": {
+            "default": false,
+            "description": "Reserved: fetching from Last.fm is not part of the read-only diff path.",
+            "title": "Refresh",
+            "type": "boolean"
+          }
+        },
+        "title": "CandidatesRequest",
+        "type": "object"
+      },
+      "CandidatesResponse": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateView"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Etag"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "kind",
+          "name",
+          "candidates",
+          "count",
+          "note"
+        ],
+        "title": "CandidatesResponse",
+        "type": "object"
+      },
+      "ConfidenceComponentView": {
+        "description": "One weighted component of a match score, with its contribution.",
+        "properties": {
+          "applied_weight": {
+            "title": "Applied Weight",
+            "type": "number"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name",
+          "value",
+          "applied_weight",
+          "detail"
+        ],
+        "title": "ConfidenceComponentView",
+        "type": "object"
+      },
+      "ConfidenceView": {
+        "properties": {
+          "accepts_by_default": {
+            "title": "Accepts By Default",
+            "type": "boolean"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ConfidenceComponentView"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "mbid_conflict": {
+            "title": "Mbid Conflict",
+            "type": "boolean"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "number"
+          },
+          "verdict": {
+            "enum": [
+              "auto",
+              "review",
+              "reject"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "total",
+          "verdict",
+          "accepts_by_default",
+          "mbid_conflict",
+          "components",
+          "notes"
+        ],
+        "title": "ConfidenceView",
+        "type": "object"
+      },
+      "DerivedCounts": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "newest_observation_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Observation At"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "counts",
+          "total"
+        ],
+        "title": "DerivedCounts",
+        "type": "object"
+      },
+      "DiffRequest": {
+        "properties": {
+          "entity_id": {
+            "description": "id of the archived entity to map from",
+            "title": "Entity Id",
+            "type": "integer"
+          },
+          "entity_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "artist",
+                  "album",
+                  "track"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "defaults to the kind implied by the Jellyfin item",
+            "title": "Entity Kind"
+          },
+          "overrides": {
+            "items": {
+              "$ref": "#/components/schemas/FieldPolicyOverride"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "tag_policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TagPolicyRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "entity_id"
+        ],
+        "title": "DiffRequest",
+        "type": "object"
+      },
+      "DiffResponse": {
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/CandidateSummary"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/FieldChangeView"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/ConfidenceView"
+          },
+          "default_selection": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Default Selection",
+            "type": "array"
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Etag"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "locked_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Locked Fields",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "withheld": {
+            "items": {
+              "$ref": "#/components/schemas/FieldChangeView"
+            },
+            "title": "Withheld",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item_id",
+          "kind",
+          "name",
+          "confidence",
+          "candidate",
+          "changes",
+          "withheld",
+          "default_selection"
+        ],
+        "title": "DiffResponse",
+        "type": "object"
+      },
+      "FieldChangeView": {
+        "description": "One proposed change to one writable field.",
+        "properties": {
+          "changes_anything": {
+            "title": "Changes Anything",
+            "type": "boolean"
+          },
+          "current": {
+            "title": "Current"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "proposed": {
+            "title": "Proposed"
+          },
+          "provenance": {
+            "additionalProperties": true,
+            "title": "Provenance",
+            "type": "object"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "selected": {
+            "title": "Selected",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "withheld_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withheld Reason"
+          }
+        },
+        "required": [
+          "field",
+          "mode",
+          "reason",
+          "source",
+          "selected",
+          "changes_anything"
+        ],
+        "title": "FieldChangeView",
+        "type": "object"
+      },
+      "FieldPolicyOverride": {
+        "description": "Per-field mode for one request, so a single edit need not change configuration.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "keep_existing",
+              "fill_if_empty",
+              "replace",
+              "merge"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "mode"
+        ],
+        "title": "FieldPolicyOverride",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InfoResponse": {
+        "properties": {
+          "app_version": {
+            "title": "App Version",
+            "type": "string"
+          },
+          "archive": {
+            "$ref": "#/components/schemas/ArchiveInfo"
+          },
+          "jellyfin": {
+            "$ref": "#/components/schemas/JellyfinInfo"
+          },
+          "lastfm": {
+            "$ref": "#/components/schemas/LastfmInfo"
+          }
+        },
+        "required": [
+          "app_version",
+          "jellyfin",
+          "lastfm",
+          "archive"
+        ],
+        "title": "InfoResponse",
+        "type": "object"
+      },
+      "ItemSummary": {
+        "properties": {
+          "album": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album"
+          },
+          "album_artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Album Artist"
+          },
+          "child_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Child Count"
+          },
+          "genres": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "has_overview": {
+            "default": false,
+            "title": "Has Overview",
+            "type": "boolean"
+          },
+          "has_provider_ids": {
+            "default": false,
+            "title": "Has Provider Ids",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "artist",
+              "album",
+              "song"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name"
+        ],
+        "title": "ItemSummary",
+        "type": "object"
+      },
+      "ItemSummaryPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "start_index": {
+            "title": "Start Index",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "start_index"
+        ],
+        "title": "ItemSummaryPage",
+        "type": "object"
+      },
+      "JellyfinInfo": {
+        "properties": {
+          "elevated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevated"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "key_configured": {
+            "title": "Key Configured",
+            "type": "boolean"
+          },
+          "reachable": {
+            "title": "Reachable",
+            "type": "boolean"
+          },
+          "server_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Name"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "reachable",
+          "key_configured"
+        ],
+        "title": "JellyfinInfo",
+        "type": "object"
+      },
+      "LastfmInfo": {
+        "properties": {
+          "api_root": {
+            "title": "Api Root",
+            "type": "string"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configured",
+          "api_root"
+        ],
+        "title": "LastfmInfo",
+        "type": "object"
+      },
+      "LibraryInfo": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "locations": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Locations",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "LibraryInfo",
+        "type": "object"
+      },
+      "PartitionUsage": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rows"
+        ],
+        "title": "PartitionUsage",
+        "type": "object"
+      },
+      "ReadMetricsView": {
+        "properties": {
+          "decisions": {
+            "title": "Decisions",
+            "type": "integer"
+          },
+          "hit_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Ratio"
+          },
+          "hits": {
+            "title": "Hits",
+            "type": "integer"
+          },
+          "misses": {
+            "title": "Misses",
+            "type": "integer"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hits",
+          "misses",
+          "decisions",
+          "scope",
+          "note"
+        ],
+        "title": "ReadMetricsView",
+        "type": "object"
+      },
+      "ReindexCounts": {
+        "properties": {
+          "albums": {
+            "title": "Albums",
+            "type": "integer"
+          },
+          "aliases": {
+            "title": "Aliases",
+            "type": "integer"
+          },
+          "artists": {
+            "title": "Artists",
+            "type": "integer"
+          },
+          "entity_tags": {
+            "title": "Entity Tags",
+            "type": "integer"
+          },
+          "expected_no_envelope": {
+            "title": "Expected No Envelope",
+            "type": "integer"
+          },
+          "observations": {
+            "title": "Observations",
+            "type": "integer"
+          },
+          "response_bodies": {
+            "title": "Response Bodies",
+            "type": "integer"
+          },
+          "similarities": {
+            "title": "Similarities",
+            "type": "integer"
+          },
+          "tag_edges": {
+            "title": "Tag Edges",
+            "type": "integer"
+          },
+          "tracks": {
+            "title": "Tracks",
+            "type": "integer"
+          },
+          "unexpected_shapes": {
+            "title": "Unexpected Shapes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artists",
+          "albums",
+          "tracks",
+          "tag_edges",
+          "similarities",
+          "aliases",
+          "entity_tags",
+          "observations",
+          "response_bodies",
+          "unexpected_shapes",
+          "expected_no_envelope"
+        ],
+        "title": "ReindexCounts",
+        "type": "object"
+      },
+      "ReindexRequest": {
+        "properties": {
+          "dry_run": {
+            "default": true,
+            "description": "Derive and report without writing. Defaults to true: a rebuild that writes should be an explicit choice, not an accident.",
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "only": {
+            "anyOf": [
+              {
+                "enum": [
+                  "artist",
+                  "album",
+                  "track",
+                  "tag",
+                  "similar",
+                  "alias"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Only"
+          }
+        },
+        "title": "ReindexRequest",
+        "type": "object"
+      },
+      "ReindexResponse": {
+        "properties": {
+          "changes": {
+            "additionalProperties": true,
+            "title": "Changes",
+            "type": "object"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ReindexCounts"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dry_run",
+          "counts",
+          "duration_ms"
+        ],
+        "title": "ReindexResponse",
+        "type": "object"
+      },
+      "SnapshotListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotSummary"
+            },
+            "title": "Snapshots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item_id",
+          "snapshots",
+          "count"
+        ],
+        "title": "SnapshotListResponse",
+        "type": "object"
+      },
+      "SnapshotSummary": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Etag"
+          },
+          "field_count": {
+            "title": "Field Count",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "source_op": {
+            "title": "Source Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "source_op",
+          "field_count"
+        ],
+        "title": "SnapshotSummary",
+        "type": "object"
+      },
+      "TagPolicyRequest": {
+        "properties": {
+          "extra_blacklist": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extra Blacklist",
+            "type": "array"
+          },
+          "genre_limit": {
+            "default": 5,
+            "maximum": 50.0,
+            "minimum": 0.0,
+            "title": "Genre Limit",
+            "type": "integer"
+          },
+          "min_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Min Count",
+            "type": "integer"
+          },
+          "style_limit": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 0.0,
+            "title": "Style Limit",
+            "type": "integer"
+          }
+        },
+        "title": "TagPolicyRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Browse a Jellyfin music library, read artist/album/track metadata from the\nLast.fm API, keep a persistent incremental local archive of every Last.fm\nresponse, review a field-level diff, and apply the accepted changes back to\nJellyfin.\n",
+    "title": "metaedit",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/archive/aliases": {
+      "get": {
+        "description": "Last.fm autocorrect corrections, so a known misspelling skips a request.",
+        "operationId": "archive_aliases_api_archive_aliases_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveAliasListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Archive Aliases",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/archive/diagnose": {
+      "get": {
+        "description": "What is archived, and what the derivation cannot use.\n\nThe counterpart to the CLI's ``archive-entities``: a parsing regression appears\nas ``shapes.unexpected`` rising above zero, with the offending methods named.",
+        "operationId": "archive_diagnose_api_archive_diagnose_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Archive Diagnose Api Archive Diagnose Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Archive Diagnose",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/archive/entities": {
+      "get": {
+        "description": "Search the derived layer offline.\n\nReads what the derivation produced and never touches the network: this is what\nanswers \"what do I already know about X\" without spending a request.",
+        "operationId": "archive_entities_api_archive_entities_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "default": "artist",
+              "enum": [
+                "artist",
+                "album",
+                "track"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "description": "only entities carrying this tag",
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only entities carrying this tag",
+              "title": "Tag"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveEntityListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Entities",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/archive/entities/{kind}/{entity_id}": {
+      "get": {
+        "operationId": "archive_entity_api_archive_entities__kind___entity_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "artist",
+                "album",
+                "track"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "title": "Entity Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveEntityDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Entity",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/archive/reindex": {
+      "post": {
+        "description": "Rebuild the derived layer from the raw archive.\n\n``dry_run`` defaults to **true** here, unlike the CLI: an HTTP client should not\nbe able to rebuild the structured layer by accident, and the report is what a UI\nwants in either case.",
+        "operationId": "run_reindex_api_archive_reindex_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReindexRequest",
+                "default": {
+                  "dry_run": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReindexResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Reindex",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/archive/stats": {
+      "get": {
+        "operationId": "archive_stats_api_archive_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveStatsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Archive Stats",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/archive/tags": {
+      "get": {
+        "description": "Every tag across the archive, with how many distinct entities carry it.",
+        "operationId": "archive_tags_api_archive_tags_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveTagListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Archive Tags",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/api/bulk/apply": {
+      "post": {
+        "description": "Apply a reviewed job, streaming progress and isolating failures per item.\n\n``confirm`` must be true. The job must exist, which means a diff was reviewed in\nthis process: a bulk write is never the first request of a session.",
+        "operationId": "bulk_apply_api_bulk_apply_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Apply",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/bulk/diff": {
+      "post": {
+        "description": "Diff every item in the selection, streaming one event per item.\n\n**Writes nothing.** The job id in the summary event is what a later ``/bulk/apply``\nmust present, so an apply can never be the first thing that happens.",
+        "operationId": "bulk_diff_api_bulk_diff_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkDiffRequest",
+                "default": {
+                  "min_confidence": 0.0,
+                  "overrides": [],
+                  "selection": {
+                    "kind": "artist",
+                    "limit": 50,
+                    "missing_metadata": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Diff",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/bulk/jobs": {
+      "get": {
+        "description": "Reviewed diffs still available to apply, newest last.\n\nExposed because \"which batch am I about to apply\" should be answerable before an\napply, not discovered afterwards.",
+        "operationId": "list_jobs_api_bulk_jobs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkJobListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Jobs",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/bulk/{batch_id}/revert": {
+      "post": {
+        "description": "Undo every item written by a batch, oldest first, isolating failures.\n\nThe batch id lives on the snapshots, so this works after a restart even though the\ndiff job that produced it does not.",
+        "operationId": "bulk_revert_api_bulk__batch_id__revert_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "title": "Batch Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bulk Revert",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "description": "Dependency-free liveness probe.",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Api Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/health/ready": {
+      "get": {
+        "description": "Readiness: report each dependency independently so partial failures are visible.",
+        "operationId": "readiness_api_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Readiness Api Health Ready Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readiness",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/info": {
+      "get": {
+        "operationId": "info_api_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InfoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Info",
+        "tags": [
+          "info"
+        ]
+      }
+    },
+    "/api/items": {
+      "get": {
+        "operationId": "items_api_items_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "default": "artist",
+              "enum": [
+                "artist",
+                "album",
+                "song"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "parent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Parent Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_index",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Start Index",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "only items lacking genres, provider ids or an overview",
+            "in": "query",
+            "name": "missing_metadata",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "only items lacking genres, provider ids or an overview",
+              "title": "Missing Metadata",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemSummaryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Items",
+        "tags": [
+          "library"
+        ]
+      }
+    },
+    "/api/items/states": {
+      "post": {
+        "description": "Hydrate many items at once -- the multi-select path for bulk editing.",
+        "operationId": "item_states_api_items_states_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Item Ids",
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Item States Api Items States Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Item States",
+        "tags": [
+          "library"
+        ]
+      }
+    },
+    "/api/items/{item_id}/apply": {
+      "post": {
+        "description": "Apply a reviewed change set.\n\n``confirm`` must be true. A write is never the default outcome of a request, and\nan omitted selection means the plan's default -- which is empty for anything that\nneeds review, so an unreviewed match writes nothing.",
+        "operationId": "item_apply_api_items__item_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Item Apply",
+        "tags": [
+          "editing"
+        ]
+      }
+    },
+    "/api/items/{item_id}/candidates": {
+      "post": {
+        "description": "Archived Last.fm entities that could be this item, best match first.\n\nReads only; nothing is fetched and nothing is written.",
+        "operationId": "item_candidates_api_items__item_id__candidates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidatesRequest",
+                "default": {
+                  "limit": 5,
+                  "refresh": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidatesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Item Candidates",
+        "tags": [
+          "editing"
+        ]
+      }
+    },
+    "/api/items/{item_id}/diff": {
+      "post": {
+        "description": "Preview the exact changes applying this candidate would make.\n\nEverything is computed and returned; nothing is written. The response includes\nthe withheld fields and the reasons, so a policy can be debugged rather than\nguessed at.",
+        "operationId": "item_diff_api_items__item_id__diff_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiffResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Item Diff",
+        "tags": [
+          "editing"
+        ]
+      }
+    },
+    "/api/items/{item_id}/refresh": {
+      "post": {
+        "description": "Ask Jellyfin to re-run *its* metadata providers for one item.\n\nDeliberately separate from applying our edits: this is Jellyfin's pipeline,\nnot ours, and it can overwrite values we just wrote.",
+        "operationId": "refresh_item_api_items__item_id__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Refresh Item Api Items  Item Id  Refresh Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh Item",
+        "tags": [
+          "library"
+        ]
+      }
+    },
+    "/api/items/{item_id}/snapshots": {
+      "get": {
+        "description": "Snapshot history, newest first, so any applied change can be undone.",
+        "operationId": "item_snapshots_api_items__item_id__snapshots_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Item Snapshots",
+        "tags": [
+          "editing"
+        ]
+      }
+    },
+    "/api/items/{item_id}/state": {
+      "get": {
+        "operationId": "item_state_api_items__item_id__state_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Item State Api Items  Item Id  State Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Item State",
+        "tags": [
+          "library"
+        ]
+      }
+    },
+    "/api/libraries": {
+      "get": {
+        "operationId": "libraries_api_libraries_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LibraryInfo"
+                  },
+                  "title": "Response Libraries Api Libraries Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Libraries",
+        "tags": [
+          "library"
+        ]
+      }
+    },
+    "/api/snapshots/{snapshot_id}/revert": {
+      "post": {
+        "description": "Restore the values captured by a snapshot.\n\nA revert is an ordinary write built from the snapshot's fields, and it is itself\nsnapshotted -- so undoing an undo works and history is never mutated.",
+        "operationId": "revert_api_snapshots__snapshot_id__revert_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "required": true,
+            "schema": {
+              "title": "Snapshot Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "must be true",
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "must be true",
+              "title": "Confirm",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revert",
+        "tags": [
+          "editing"
+        ]
+      }
+    }
+  }
+}

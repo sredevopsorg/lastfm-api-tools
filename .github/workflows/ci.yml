@@ -80,6 +80,12 @@ jobs:
       - name: Type check
         run: uv run mypy
 
+      # The SPA's types are generated from /openapi.json, so a schema change that was
+      # not regenerated would leave the frontend compiling against a contract the
+      # backend no longer serves.
+      - name: API contract is up to date
+        run: uv run python scripts/export_contract.py --check
+
       - name: Tests
         run: uv run pytest -q
 

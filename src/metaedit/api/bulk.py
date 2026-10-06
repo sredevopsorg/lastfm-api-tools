@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.api.deps import JellyfinDep
 from metaedit.api.items import FieldPolicyOverride, TagPolicyRequest, tag_policy_from
+from metaedit.api.schemas import BulkJobListResponse
 from metaedit.db.session import get_session
 from metaedit.domain.errors import NotFoundError, ValidationError
 from metaedit.service import bulk
@@ -178,7 +179,7 @@ async def bulk_revert(
     )
 
 
-@router.get("/jobs")
+@router.get("/jobs", response_model=BulkJobListResponse)
 async def list_jobs() -> dict[str, Any]:
     """Reviewed diffs still available to apply, newest last.
 

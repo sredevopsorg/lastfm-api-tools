@@ -18,6 +18,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.api.deps import JellyfinDep
+from metaedit.api.schemas import (
+    ApplyResponse,
+    CandidatesResponse,
+    DiffResponse,
+    SnapshotListResponse,
+)
 from metaedit.archive.resolve import describe_candidate, resolve_candidates
 from metaedit.db.models import Snapshot
 from metaedit.db.session import get_session
@@ -80,7 +86,7 @@ class ApplyRequest(DiffRequest):
     )
 
 
-@router.post("/items/{item_id}/candidates")
+@router.post("/items/{item_id}/candidates", response_model=CandidatesResponse)
 async def item_candidates(
     item_id: str,
     client: JellyfinDep,
@@ -108,7 +114,7 @@ async def item_candidates(
     }
 
 
-@router.post("/items/{item_id}/diff")
+@router.post("/items/{item_id}/diff", response_model=DiffResponse)
 async def item_diff(
     item_id: str,
     client: JellyfinDep,
@@ -133,7 +139,7 @@ async def item_diff(
     return plan.as_dict()
 
 
-@router.post("/items/{item_id}/apply")
+@router.post("/items/{item_id}/apply", response_model=ApplyResponse)
 async def item_apply(
     item_id: str,
     client: JellyfinDep,
@@ -175,7 +181,7 @@ async def item_apply(
     return payload
 
 
-@router.get("/items/{item_id}/snapshots")
+@router.get("/items/{item_id}/snapshots", response_model=SnapshotListResponse)
 async def item_snapshots(
     item_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -212,7 +218,7 @@ async def item_snapshots(
     }
 
 
-@router.post("/snapshots/{snapshot_id}/revert")
+@router.post("/snapshots/{snapshot_id}/revert", response_model=ApplyResponse)
 async def revert(
     snapshot_id: int,
     client: JellyfinDep,

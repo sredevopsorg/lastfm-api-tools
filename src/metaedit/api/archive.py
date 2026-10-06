@@ -15,6 +15,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from metaedit.api.schemas import (
+    ArchiveAliasListResponse,
+    ArchiveEntityDetail,
+    ArchiveEntityListResponse,
+    ArchiveStatsResponse,
+    ArchiveTagListResponse,
+    ReindexResponse,
+)
 from metaedit.archive.reindex import (
     ReindexReport,
     derived_summary,
@@ -53,7 +61,7 @@ _ENTITY_MODELS: dict[EntityKind, EntityModel] = {
 }
 
 
-@router.get("/stats")
+@router.get("/stats", response_model=ArchiveStatsResponse)
 async def archive_stats(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -67,7 +75,7 @@ async def archive_stats(
     return stats
 
 
-@router.get("/entities")
+@router.get("/entities", response_model=ArchiveEntityListResponse)
 async def archive_entities(
     session: Annotated[AsyncSession, Depends(get_session)],
     kind: Annotated[EntityKind, Query()] = "artist",
@@ -114,7 +122,7 @@ async def archive_entities(
     }
 
 
-@router.get("/entities/{kind}/{entity_id}")
+@router.get("/entities/{kind}/{entity_id}", response_model=ArchiveEntityDetail)
 async def archive_entity(
     session: Annotated[AsyncSession, Depends(get_session)],
     kind: EntityKind,
@@ -176,7 +184,7 @@ async def archive_entity(
     }
 
 
-@router.get("/tags")
+@router.get("/tags", response_model=ArchiveTagListResponse)
 async def archive_tags(
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=1000)] = 100,
@@ -203,7 +211,7 @@ async def archive_tags(
     }
 
 
-@router.get("/aliases")
+@router.get("/aliases", response_model=ArchiveAliasListResponse)
 async def archive_aliases(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict[str, Any]:
@@ -223,7 +231,8 @@ async def archive_aliases(
                 "canonical_artist_id": alias.canonical_artist_id,
             }
             for alias, canonical in rows
-        ]
+        ],
+        "total": len(rows),
     }
 
 
@@ -236,7 +245,7 @@ class ReindexRequest(BaseModel):
     only: Literal["artist", "album", "track", "tag", "similar", "alias"] | None = None
 
 
-@router.post("/reindex")
+@router.post("/reindex", response_model=ReindexResponse)
 async def run_reindex(
     session: Annotated[AsyncSession, Depends(get_session)],
     body: Annotated[ReindexRequest, Body()] = ReindexRequest(),
