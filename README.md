@@ -347,6 +347,17 @@ the live Last.fm API). Findings that contradicted the code:
 - **`Etag` exists but only when requested via `fields=`.** Concluding otherwise would
   have sent phase 5 down an unnecessary fallback. `DateLastSaved` is *not* returned
   for music items even when requested, so `Etag` is the version token for ADR 0007.
+- **`GET /Items/{itemId}` requires a user context.** With a userless API key it returns
+  **400** ("Error processing request.") for *every* id — including one the server itself
+  just returned from `/Artists` — unless `userId` is supplied. The list endpoints
+  (`/Items?ids=…`) tolerate its absence, which is what made this easy to miss: every
+  list-based test passed while the entire single-item path was broken. The contract
+  lists `userId` as *optional*, so a schema check agrees with the broken assumption.
+
+  This mattered a great deal, because apply **reads the item first**: the failure
+  surfaced as `Jellyfin rejected the request to /Items/… with 400` and no write was ever
+  attempted. The client now discovers a user (an explicit `JELLYFIN_USER_ID` wins,
+  otherwise the first administrator in sorted-id order is cached per process).
 - Item type names (`MusicArtist`, `MusicAlbum`, `Audio`) are correct — 639 artists,
   502 albums, 5442 songs on that server.
 - Every requested `fields=` value is honoured **except `ParentId`**, which is

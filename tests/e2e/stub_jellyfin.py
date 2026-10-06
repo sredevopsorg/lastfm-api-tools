@@ -216,6 +216,12 @@ async def users_me(request: Request) -> JSONResponse:
     return JSONResponse({"title": "Bad Request", "status": 400}, status_code=400)
 
 
+@app.get("/Users")
+async def users() -> list[dict[str, Any]]:
+    """A user list, because a userless API key needs one to read a single item."""
+    return [{"Id": "e2e-user", "Name": "e2e", "Policy": {"IsAdministrator": True}}]
+
+
 @app.get("/Library/VirtualFolders")
 async def virtual_folders() -> list[dict[str, Any]]:
     return [
@@ -271,6 +277,13 @@ async def items(request: Request) -> dict[str, Any]:
 
 @app.get("/Items/{item_id}")
 async def item(item_id: str, request: Request) -> JSONResponse:
+    # Reproduces a live 12.2.0 behaviour: with a userless API key this endpoint returns
+    # **400** for every id unless a `userId` is supplied, even for an id the server itself
+    # just returned from /Artists. The list endpoints tolerate its absence. Without this
+    # the stub accepted a request the real server rejects, so the whole single-item path
+    # -- and therefore apply -- shipped broken.
+    if not request.query_params.get("userId"):
+        return JSONResponse({"title": "Bad Request"}, status_code=400)
     row = LIBRARY.get(item_id)
     if row is None:
         return JSONResponse({"title": "Not Found"}, status_code=404)

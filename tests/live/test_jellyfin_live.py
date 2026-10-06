@@ -184,6 +184,59 @@ async def test_etag_is_present(client: JellyfinClient) -> None:
         assert present, f"{kind} items must carry an Etag for optimistic concurrency"
 
 
+async def test_a_single_item_is_readable_by_id(client: JellyfinClient) -> None:
+    """The read every edit depends on, and the one this suite went without.
+
+    `GET /Items/{itemId}` with a **userless API key** returns **400** on 12.2.0 --
+    regardless of the id, including one the server itself just returned from `/Artists`
+    -- unless a `userId` is supplied. The list endpoints tolerate its absence, so every
+    earlier test here passed while the whole single-item path was broken: state,
+    candidates, diff and apply all read the item first, which meant apply failed with
+    "Jellyfin rejected the request to /Items/... with 400" and never attempted a write.
+
+    A live test is the only thing that could have caught it. The contract lists `userId`
+    as optional, so a schema check agrees with the broken assumption, and the stub
+    accepted the request happily.
+    """
+    page = await client.artists(limit=1)
+    if not page.Items:
+        pytest.skip("no artists on this server to read")
+    item_id = page.Items[0].Id
+    assert item_id, "the server must return an id we can read back"
+
+    # No explicit user: the client resolves one, which is the behaviour under test.
+    dto = await client.item(item_id)
+    assert dto.Id, "the item read must return a real item"
+    assert dto.Name, "and its name"
+
+    # The resolved user must be cached, or a library-wide operation doubles its requests.
+    resolved = await client.user_id()
+    assert resolved, "a userless API key needs a user id to read a single item"
+    assert await client.user_id() == resolved
+
+
+async def test_reading_an_item_without_a_user_fails_on_this_server(
+    client: JellyfinClient,
+) -> None:
+    """Documents the Jellyfin behaviour the client works around, rather than trusting it.
+
+    If a future server stops requiring the user id, this test fails and the workaround can
+    be reconsidered -- which is better than carrying it forever on a stale assumption.
+    """
+    page = await client.artists(limit=1)
+    if not page.Items:
+        pytest.skip("no artists on this server to read")
+    item_id = page.Items[0].Id
+
+    response = await client._request(
+        "GET", f"/Items/{item_id}", params={"fields": "Genres"}, raw=True
+    )
+    assert response.status_code == 400, (
+        "expected Jellyfin to reject a userless single-item read; if this now returns "
+        "200 the userId workaround in JellyfinClient.item() may no longer be needed"
+    )
+
+
 async def test_item_type_names_match_what_we_query(client: JellyfinClient) -> None:
     """We query ``includeItemTypes=MusicArtist|MusicAlbum|Audio``.
 

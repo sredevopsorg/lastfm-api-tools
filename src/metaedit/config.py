@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     jellyfin_api_key: SecretStr = Field(default=SecretStr(""), alias="JELLYFIN_API_KEY")
     jellyfin_timeout_s: float = 10.0
     jellyfin_max_retries: int = 2
+    # Optional. An API key carries no user identity, and Jellyfin's single-item endpoint
+    # requires a user context, so one is discovered from /Users when this is empty.
+    # Set it to pin the choice on a server where the "first" user is not the right one.
+    jellyfin_user_id: str = Field(default="", alias="JELLYFIN_USER_ID")
 
     # ---- Last.fm ---------------------------------------------------------
     lastfm_api_key: SecretStr = Field(default=SecretStr(""), alias="LASTFM_API_KEY")
@@ -119,7 +123,19 @@ class Settings(BaseSettings):
 
     @property
     def jellyfin_base_url(self) -> str:
-        return self.jellyfin_url.rstrip("/")
+        """The server root, with a scheme.
+
+        A bare ``host:port`` is a natural way to write a LAN address -- Jellyfin's own
+        docs use it -- but httpx then fails with "Request URL is missing an 'http://' or
+        'https://' protocol", which names neither the setting nor the fix. Normalising to
+        http (Jellyfin's default) turns a confusing transport error into a working
+        connection, and the alternative of refusing to start is unfriendly for a value
+        that has exactly one sensible reading.
+        """
+        url = self.jellyfin_url.strip().rstrip("/")
+        if url and "://" not in url:
+            url = f"http://{url}"
+        return url
 
     @property
     def lastfm_base_url(self) -> str:

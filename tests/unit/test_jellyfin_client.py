@@ -34,6 +34,12 @@ def _settings(**overrides: object) -> Settings:
 @pytest.fixture
 def mock_router() -> respx.Router:
     with respx.mock(assert_all_called=False) as router:
+        # A single-item read resolves a user first (Jellyfin 400s without one), and every
+        # real server has users. Tests about discovery override this route.
+        router.get(f"{BASE}/Users").respond(
+            200,
+            json=[{"Id": "fixture-user", "Name": "fixture", "Policy": {"IsAdministrator": True}}],
+        )
         yield router
 
 
@@ -106,17 +112,24 @@ async def test_not_found_maps_to_not_found(mock_router: respx.Router) -> None:
             await client.item("missing")
 
 
-async def test_bad_request_is_a_contract_error_that_does_not_leak_the_body(
+async def test_a_bad_request_surfaces_the_reason(
     mock_router: respx.Router,
 ) -> None:
-    mock_router.post(f"{BASE}/Items/abc").respond(400, text="internal stack trace here")
+    """The reason is reported, because a bare status is undiagnosable.
+
+    Withholding the body was the original design and it made every upstream 4xx a dead
+    end: the operator saw "rejected the request with 400" and nothing else. The reason is
+    now included -- after redaction, which is what makes that safe, and which the test
+    below covers.
+    """
+    mock_router.post(f"{BASE}/Items/abc").respond(
+        400, json={"title": "Bad Request", "detail": "PremiereDate was not recognised"}
+    )
     async with JellyfinClient(_settings()) as client:
         with pytest.raises(UpstreamContractError) as excinfo:
             await client.update_item("abc", {"Name": "x"})
-    # Captured server-side for the logs...
-    assert "internal stack trace" in (excinfo.value.detail or "")
-    # ...but not part of what a client would see.
-    assert "internal stack trace" not in excinfo.value.message
+    assert "PremiereDate was not recognised" in (excinfo.value.detail or "")
+    assert "PremiereDate was not recognised" in excinfo.value.message
 
 
 async def test_503_is_retried_with_backoff_honouring_retry_after(mock_router: respx.Router) -> None:
@@ -266,3 +279,149 @@ async def test_update_item_posts_the_payload_verbatim(mock_router: respx.Router)
     import json
 
     assert json.loads(route.calls[0].request.content) == payload
+
+
+# --------------------------------------------- user-scoped reads (live-verified quirk)
+
+
+async def test_item_read_resolves_a_user_when_none_is_given(mock_router: respx.Router) -> None:
+    """`GET /Items/{id}` returns 400 for a userless API key unless a user is supplied.
+
+    Live-verified on 12.2.0. The contract lists `userId` as optional, so nothing but a
+    live call reveals it -- which is how the whole single-item path shipped broken while
+    every list-endpoint test passed.
+    """
+    users = mock_router.get(f"{BASE}/Users").respond(
+        200,
+        json=[
+            {"Id": "zzz-admin", "Name": "second", "Policy": {"IsAdministrator": True}},
+            {"Id": "aaa-admin", "Name": "first", "Policy": {"IsAdministrator": True}},
+        ],
+    )
+    item = mock_router.get(f"{BASE}/Items/abc").respond(200, json={"Id": "abc", "Name": "x"})
+
+    async with JellyfinClient(_settings()) as client:
+        await client.item("abc")
+
+    assert users.called, "the client must discover a user before reading an item"
+    # Sorted by id, so the choice cannot depend on the order the server returns.
+    assert item.calls[0].request.url.params["userId"] == "aaa-admin"
+
+
+async def test_the_resolved_user_is_cached(mock_router: respx.Router) -> None:
+    """A library-wide operation must not double its request count resolving a user."""
+    users = mock_router.get(f"{BASE}/Users").respond(
+        200, json=[{"Id": "u1", "Policy": {"IsAdministrator": True}}]
+    )
+    mock_router.get(f"{BASE}/Items/abc").respond(200, json={"Id": "abc", "Name": "x"})
+    mock_router.get(f"{BASE}/Items/def").respond(200, json={"Id": "def", "Name": "y"})
+
+    async with JellyfinClient(_settings()) as client:
+        await client.item("abc")
+        await client.item("def")
+
+    assert users.call_count == 1, "the user id is a per-process fact"
+
+
+async def test_a_configured_user_id_wins(mock_router: respx.Router) -> None:
+    """Pinning the user matters on a server where "first" is not the right one."""
+    users = mock_router.get(f"{BASE}/Users").respond(
+        200, json=[{"Id": "aaa-admin", "Policy": {"IsAdministrator": True}}]
+    )
+    item = mock_router.get(f"{BASE}/Items/abc").respond(200, json={"Id": "abc", "Name": "x"})
+
+    async with JellyfinClient(_settings(JELLYFIN_USER_ID="pinned-user")) as client:
+        await client.item("abc")
+
+    assert not users.called, "a configured id must not trigger discovery"
+    assert item.calls[0].request.url.params["userId"] == "pinned-user"
+
+
+async def test_an_explicit_user_id_overrides_the_resolved_one(mock_router: respx.Router) -> None:
+    mock_router.get(f"{BASE}/Users").respond(
+        200, json=[{"Id": "aaa-admin", "Policy": {"IsAdministrator": True}}]
+    )
+    item = mock_router.get(f"{BASE}/Items/abc").respond(200, json={"Id": "abc", "Name": "x"})
+
+    async with JellyfinClient(_settings()) as client:
+        await client.item("abc", user_id="caller-choice")
+
+    assert item.calls[0].request.url.params["userId"] == "caller-choice"
+
+
+async def test_a_non_admin_is_used_when_no_admin_exists(mock_router: respx.Router) -> None:
+    """Better a user than no user: any valid id satisfies the endpoint."""
+    mock_router.get(f"{BASE}/Users").respond(
+        200, json=[{"Id": "plain", "Policy": {"IsAdministrator": False}}]
+    )
+    item = mock_router.get(f"{BASE}/Items/abc").respond(200, json={"Id": "abc", "Name": "x"})
+
+    async with JellyfinClient(_settings()) as client:
+        await client.item("abc")
+
+    assert item.calls[0].request.url.params["userId"] == "plain"
+
+
+async def test_user_discovery_failure_does_not_mask_the_read(mock_router: respx.Router) -> None:
+    """If /Users is unavailable the read proceeds, and its own error is the one reported."""
+    mock_router.get(f"{BASE}/Users").respond(500)
+    mock_router.get(f"{BASE}/Items/abc").respond(200, json={"Id": "abc", "Name": "x"})
+
+    async with JellyfinClient(_settings()) as client:
+        dto = await client.item("abc")
+
+    assert dto.Name == "x"
+
+
+# ------------------------------------------------------ diagnostics and redaction
+
+
+async def test_a_rejection_reports_the_reason(mock_router: respx.Router) -> None:
+    """A bare status is undiagnosable; Jellyfin's 400s often name the offending field."""
+    mock_router.post(f"{BASE}/Items/abc").respond(
+        400, json={"title": "Bad Request", "detail": "PremiereDate was not recognised"}
+    )
+    async with JellyfinClient(_settings()) as client:
+        with pytest.raises(UpstreamContractError) as caught:
+            await client.update_item("abc", {"Name": "x"})
+
+    assert "PremiereDate was not recognised" in str(caught.value)
+
+
+async def test_a_rejection_never_echoes_the_credential(mock_router: respx.Router) -> None:
+    """Jellyfin does echo the Authorization header in some error bodies.
+
+    Surfacing the reason is only safe because the key is redacted first; forwarding the
+    body verbatim would put an administrator credential in a log line and an API response.
+    """
+    # A 400, because that is the path that carries a body: a 5xx becomes
+    # UpstreamUnavailable, which forwards none, so asserting redaction there would be
+    # testing something that never happens.
+    mock_router.post(f"{BASE}/Items/abc").respond(
+        400, json={"Authorization": 'MediaBrowser Token="test-admin-key"', "detail": "bad field"}
+    )
+    async with JellyfinClient(_settings()) as client:
+        with pytest.raises(UpstreamContractError) as caught:
+            await client.update_item("abc", {"Name": "x"})
+
+    assert "test-admin-key" not in str(caught.value)
+    assert "***" in str(caught.value), "the reason survives, with the key masked"
+    assert "bad field" in str(caught.value), "and the diagnostic is still useful"
+
+
+def test_a_scheme_less_url_is_normalised() -> None:
+    """`host:port` is how Jellyfin's own docs write a LAN address.
+
+    Left alone, httpx fails with "Request URL is missing an 'http://' or 'https://'
+    protocol", which names neither the setting nor the fix.
+    """
+    from metaedit.config import Settings
+
+    assert (
+        Settings(_env_file=None, JELLYFIN_URL="192.168.1.77:8096").jellyfin_base_url
+        == "http://192.168.1.77:8096"
+    )
+    assert (
+        Settings(_env_file=None, JELLYFIN_URL="https://j.example/").jellyfin_base_url
+        == "https://j.example"
+    )

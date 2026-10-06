@@ -26,6 +26,7 @@ from metaedit.adapters.jellyfin.dto import (
 )
 from metaedit.config import Settings
 from metaedit.domain.errors import (
+    MetaeditError,
     NotFoundError,
     UpstreamAuthError,
     UpstreamContractError,
@@ -99,6 +100,9 @@ class JellyfinClient:
         self._max_retries = max(settings.jellyfin_max_retries, 0)
         self._client = client
         self._owns_client = client is None
+        # Resolved lazily and cached: an API key is userless, so user-aware reads need an
+        # explicit user, and re-resolving it per item would double the request count.
+        self._user_id: str | None = None
 
     async def __aenter__(self) -> Self:
         if self._client is None:
@@ -196,10 +200,16 @@ class JellyfinClient:
                     upstream_status=response.status_code,
                 )
             if response.status_code >= 400:
+                reason = _sanitise_body(response, secrets=self._secrets())
+                # The reason is in the message, not only in `detail`: a bare status is
+                # undiagnosable, and Jellyfin's 400s are frequently a validation message
+                # that says exactly which field it disliked. `_sanitise_body` redacts the
+                # credential first, so the diagnostic cannot become a leak.
                 raise UpstreamContractError(
-                    f"Jellyfin rejected the request to {path} with {response.status_code}",
+                    f"Jellyfin rejected the request to {path} with {response.status_code}"
+                    + (f": {reason}" if reason else ""),
                     upstream_status=response.status_code,
-                    detail=_sanitise_body(response),
+                    detail=reason,
                 )
             return response
 
@@ -398,10 +408,70 @@ class JellyfinClient:
         return results
 
     async def item(self, item_id: str, *, user_id: str | None = None) -> BaseItemDto:
+        """One item by id.
+
+        The ``userId`` is not optional in practice, whatever the contract implies.
+        Live-verified on 12.2.0: ``GET /Items/{itemId}`` with a **userless API key**
+        returns **400** ("Error processing request.") for every id, including one the
+        server itself just returned from ``/Artists``. Supplying a user id makes the same
+        request return 200. The list form (``/Items?ids=…``) tolerates its absence, which
+        is why the difference was easy to miss -- and why this method, which the entire
+        edit path depends on, went unexercised against a real server for so long.
+
+        The user is resolved automatically when the caller does not name one, so a caller
+        that has no reason to care about Jellyfin users does not have to.
+        """
+        resolved = user_id or await self.user_id()
         payload = await self._get_json(
-            f"/Items/{item_id}", {"userId": user_id, "fields": ",".join(ITEM_FIELDS)}
+            f"/Items/{item_id}", {"userId": resolved, "fields": ",".join(ITEM_FIELDS)}
         )
         return BaseItemDto.model_validate(payload)
+
+    def _secrets(self) -> tuple[str, ...]:
+        """Values that must never appear in text leaving this process."""
+        return (self._key,) if self._key else ()
+
+    async def user_id(self) -> str | None:
+        """A user id to scope user-aware reads to, or None if none can be found.
+
+        An API key carries no user identity, so any valid user works for reading library
+        metadata. An explicitly configured id wins; otherwise the administrator list is
+        consulted and the first is taken in **sorted id order**, so the choice does not
+        depend on the order the server happens to return.
+
+        Cached for the life of the client: this is a per-process fact, and re-resolving it
+        on every item read would double the request count for a library-wide operation.
+        """
+        if self._user_id is not None:
+            return self._user_id or None
+        configured = (self._settings.jellyfin_user_id or "").strip()
+        if configured:
+            self._user_id = configured
+            return configured
+        try:
+            payload = await self._get_json("/Users")
+        except (MetaeditError, httpx.HTTPError):
+            # Catches the whole hierarchy, not just UpstreamError: a 404 or a schema change
+            # raises a different member, and letting one escape would make user discovery
+            # the reported failure instead of the read the caller actually asked for.
+            # Degrading to "no user" lets the read report its own, more useful error.
+            self._user_id = ""
+            return None
+        users = payload if isinstance(payload, list) else []
+        admins = [
+            user
+            for user in users
+            if isinstance(user, dict) and (user.get("Policy") or {}).get("IsAdministrator")
+        ]
+        candidates = admins or [user for user in users if isinstance(user, dict)]
+        chosen = sorted(
+            (user for user in candidates if user.get("Id")),
+            key=lambda user: str(user["Id"]),
+        )
+        self._user_id = str(chosen[0]["Id"]) if chosen else ""
+        if self._user_id:
+            log.debug("jellyfin_user_resolved", user_id=self._user_id)
+        return self._user_id or None
 
     async def metadata_editor_info(self, item_id: str) -> MetadataEditorInfo:
         payload = await self._get_json(f"/Items/{item_id}/MetadataEditor")
@@ -467,10 +537,24 @@ def _chunks(items: Sequence[str], size: int) -> list[list[str]]:
     return [list(items[index : index + size]) for index in range(0, len(items), size)]
 
 
-def _sanitise_body(response: httpx.Response, *, limit: int = 500) -> str:
-    """Server-side diagnostic text. Never sent to a client verbatim."""
+def _sanitise_body(
+    response: httpx.Response, *, secrets: Sequence[str] = (), limit: int = 400
+) -> str:
+    """Server-side diagnostic text, with any credential redacted.
+
+    Dropping the body entirely was the original design, and it made every upstream 4xx
+    undiagnosable -- the operator saw a status and nothing else. Redaction is the better
+    trade: it preserves the reason Jellyfin gave while keeping the key out of a log line
+    or an API response. Jellyfin does echo the `Authorization` header in some error
+    bodies, so the redaction is not hypothetical.
+    """
     try:
         text = response.text
     except Exception:
         return "<unreadable>"
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "***")
+    # Collapse whitespace so a multi-line validation body stays one readable line.
+    text = " ".join(text.split())
     return text[:limit]
