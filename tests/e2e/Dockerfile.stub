@@ -1,0 +1,24 @@
+# The stub Jellyfin, for the end-to-end stack only.
+#
+# Its own file rather than a stage of the app's Dockerfile, because it must never be
+# part of a deployable image: shipping a service that impersonates Jellyfin would be a
+# serious mistake to make available by accident.
+FROM docker.io/library/python:3.12-slim
+
+RUN pip install --no-cache-dir "fastapi==0.115.6" "uvicorn[standard]==0.34.0"
+
+WORKDIR /stub
+COPY tests/e2e/stub_jellyfin.py ./
+
+EXPOSE 8096
+
+# Non-root, like the real image. The source is copied before the user exists, so it has
+# to be handed over explicitly -- otherwise the unprivileged process cannot read it.
+RUN useradd --uid 10002 --no-create-home --shell /usr/sbin/nologin stub \
+    && chown -R 10002:10002 /stub
+USER 10002
+
+HEALTHCHECK --interval=5s --timeout=3s --retries=10 \
+    CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8096/health')"
+
+CMD ["python", "stub_jellyfin.py"]

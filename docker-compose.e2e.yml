@@ -1,0 +1,163 @@
+# End-to-end stack for the critical journey.
+#
+# Every service here is a stand-in for something the real deployment talks to. The
+# journey *writes* metadata, so pointing it at a real Jellyfin would edit a real library
+# -- which is why the stub exists and why this file is separate from the development
+# compose file rather than a profile of it. A flag that could point the e2e suite at
+# production is a flag someone will eventually set.
+#
+#   docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
+#
+# `stub` and `app` use fixed ports so the Playwright specs have one address to target.
+
+name: metaedit-e2e
+
+volumes:
+  pgdata:
+
+services:
+  postgres:
+    image: docker.io/postgres:18-trixie
+    # Collation is pinned via initdb, not a runtime setting: `lc_collate` cannot be
+    # changed with `-c` after the cluster exists. Ordering by `identity` is the design
+    # (docs/design/0003), and C collation makes that ordering byte-wise and therefore
+    # identical on every machine rather than dependent on the host locale.
+    environment:
+      POSTGRES_USER: metaedit
+      POSTGRES_PASSWORD: metaedit
+      POSTGRES_DB: metaedit
+      POSTGRES_INITDB_ARGS: --locale=C --encoding=UTF8
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U metaedit -d metaedit']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    # No tmpfs: a tmpfs mount is root-owned and the postgres user cannot initialise a
+    # cluster in it. `docker compose down -v` already makes each run start empty.
+    volumes:
+      - pgdata:/var/lib/postgresql
+
+  stub:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.stub
+    environment:
+      STUB_API_KEY: e2e-stub-admin-key
+      STUB_PORT: '8096'
+    ports:
+      - '18096:8096'
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8096/health')"
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Migrations as their own idempotent step, never at app startup: with more than one
+  # replica every app would race to migrate the same schema.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://metaedit:metaedit@postgres:5432/metaedit
+      LOG_JSON: 'false'
+    command: ['alembic', 'upgrade', 'head']
+    working_dir: /app
+    restart: 'no'
+
+  # Seeds the archive once, then exits. The app waits for it, so the UI never starts
+  # against an empty archive and a "no candidates" screen cannot be mistaken for a
+  # working one.
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: seed
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment: &app_env
+      DATABASE_URL: postgresql+psycopg://metaedit:metaedit@postgres:5432/metaedit
+      JELLYFIN_URL: http://stub:8096
+      JELLYFIN_API_KEY: e2e-stub-admin-key
+      LASTFM_API_KEY: e2e-not-used
+      LOG_JSON: 'false'
+      ARCHIVE_ENABLED: 'true'
+    # Baked into a dedicated `seed` target rather than mounted: the runtime image ships
+    # no test code, and a mounted script is owned by the host user, which the
+    # unprivileged container user cannot read.
+    working_dir: /app
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Pinned explicitly. Docker builds the *last* stage by default, so adding the
+      # `seed` stage after `runtime` silently made `app` build the seed image and run
+      # the fixture script instead of the server.
+      target: runtime
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      stub:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    environment:
+      <<: *app_env
+      # The archive is seeded and Last.fm is never contacted: the e2e suite must not
+      # depend on a third-party service being up, nor spend its rate limit.
+      ARCHIVE_FRESHNESS_TTL_S: '86400'
+    ports:
+      - '18080:8080'
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health')"
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  playwright:
+    # Started explicitly by scripts/e2e.sh, never by `up`: it is a one-shot test run,
+    # not a service, and `profiles` keeps a plain `up` from trying to run it.
+    profiles: ['test']
+    image: mcr.microsoft.com/playwright:v1.49.1-noble
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      E2E_BASE_URL: http://app:8080
+      E2E_STUB_URL: http://stub:8096
+      CI: '1'
+    working_dir: /work
+    volumes:
+      - ./apps/web:/work
+    # An isolated store: the host's pnpm cache is not mounted, so the install cannot be
+    # influenced by whatever is already on the machine.
+    #
+    # pnpm is installed from npm rather than through `corepack enable`, whose bundled
+    # key set in this image is too old to verify pnpm's current signature -- it fails
+    # with "Cannot find matching keyid". Disabling corepack's integrity check would also
+    # work and is the worse answer.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        export npm_config_cache=/tmp/npm-cache
+        export npm_config_store_dir=/tmp/pnpm-store
+        npm install --global pnpm@12.9.1
+        pnpm install --frozen-lockfile
+        pnpm exec playwright test

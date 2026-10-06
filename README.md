@@ -13,7 +13,29 @@ field-level diff, and apply the accepted changes back to Jellyfin.
 
 ## Status
 
-Under construction, phase by phase. Phases 0–7 are implemented and verified. Hardening and end-to-end tests remain.
+Under construction, phase by phase. All eight phases are implemented and verified. See *Testing* for how to run each layer.
+
+### Hardening
+
+Security headers and a request-body cap are applied in the app rather than left to a
+reverse proxy, because this is a self-hosted tool people put on their own LAN:
+
+- A **restrictive CSP**. The SPA shares an origin with the write endpoints, so injected
+  script could edit metadata. The policy costs nothing here — no third-party script, no
+  inline script, no remote font — and the Last.fm image CDN is allowed for images only.
+- `nosniff`, `frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, a
+  `Permissions-Policy` denying camera/microphone/geolocation.
+- A **2 MiB body cap**, checked against the declared `Content-Length`, so a lying header
+  does not get an unbounded read.
+- The Jellyfin and Last.fm keys are `SecretStr`, so `model_dump()` and `repr()` cannot
+  leak them, and a test asserts that. Another asserts no endpoint or log line echoes
+  either key.
+
+Not added on purpose: rate limiting of *our* API. The expensive operations are
+operator-triggered and already bounded (a batch is capped at 500 items, each write costs
+one Jellyfin request), and a limiter would mostly inconvenience the single user this tool
+has. The Last.fm client does rate-limit, because that is a shared third-party service
+with published limits.
 
 ### The UI
 
@@ -25,6 +47,30 @@ React + Vite single-page app, served by the same container as the API. Four scre
 | **Editor** | Pick an archived candidate, review the diff field by field, write only what you tick, undo from the snapshot history. |
 | **Bulk** | Review a selection, apply the reviewed job, watch per-item progress, revert the batch as a unit. |
 | **Archive** | Storage-cap headroom, the derived layer's counts, stored entities with tags by popularity and similar artists. |
+
+### End-to-end tests
+
+Nine Playwright specs cover the critical journey through a real browser: browse, search,
+review a diff, apply one field, undo it, revert a batch, and inspect the archive.
+
+```bash
+./scripts/e2e.sh          # run the suite
+./scripts/e2e.sh --keep   # leave the stack up to inspect a failure
+```
+
+Every service it talks to is a stand-in, in a **separate compose file**
+(`docker-compose.e2e.yml`) rather than a profile of the development one: the journey
+*writes* metadata, and a flag that could point it at a real library is a flag somebody
+will eventually set. The stub Jellyfin reproduces the real server's awkward behaviours —
+MediaBrowser-only auth, userless API keys answering 400 on `/Users/Me`, `/Artists`
+emptying when filtered, `/Library/MediaFolders` omitting `ItemId`, `Etag` only when
+requested — so the app is exercised against the quirks rather than a convenient fiction.
+
+The assertion that matters most is on the **server's** state, not the UI's message.
+`POST /Items/{id}` is a full overwrite, so a body that omits a field nulls it; checking
+only what the app says it did would pass even if it had destroyed the item. Verified by
+reintroducing exactly that bug: three specs fail, including the one that asserts
+unselected fields survive.
 
 The SPA's types are **generated** from the backend's OpenAPI document rather than
 hand-written, and a CI step fails if a schema change was not regenerated. Query
@@ -47,7 +93,7 @@ error with an actionable message.
 | Apply, snapshot, undo | **done** |
 | Bulk editing (SSE) | **done** |
 | Library browser, editor, bulk and archive-explorer UI | **done** |
-| Hardening, end-to-end tests | **next** (phase 8) |
+| Hardening, end-to-end tests | **done** |
 
 `metaedit reindex` derives the structured layer from the raw archive: entity rows
 for artists, albums and tracks, tag edges with real popularity counts, similar

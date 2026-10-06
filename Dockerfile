@@ -65,3 +65,17 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=4).status == 200 else 1)"
 
 CMD ["uvicorn", "metaedit.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-access-log"]
+
+# ---------------------------------------------------------------------------
+# Stage 4: test fixtures
+#
+# A separate target so the `runtime` stage above stays deployable and ships no test
+# code. It exists because the e2e seed needs the app's own package to write through the
+# real archive, and mounting the script from the host made it unreadable to the
+# unprivileged user the image runs as.
+# ---------------------------------------------------------------------------
+FROM runtime AS seed
+
+COPY --chown=10001:10001 tests/e2e/seed_archive.py /app/seed_archive.py
+
+CMD ["python", "/app/seed_archive.py"]

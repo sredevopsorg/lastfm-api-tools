@@ -45,3 +45,8 @@ apps/web/.pnpm-state/
 apps/web/.pnpm-config/
 apps/web/.corepack/
 apps/web/node_modules/
+
+# Playwright output: traces, screenshots and reports are per-run artefacts.
+apps/web/playwright-report/
+apps/web/test-results/
+apps/web/blob-report/
