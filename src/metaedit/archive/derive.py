@@ -31,8 +31,21 @@ from metaedit.archive.identity import (
     key_for,
 )
 
-# What one (entity, tag) pair looks like once derived.
 ENTITY_KINDS: tuple[EntityKind, ...] = ("artist", "album", "track")
+
+# Methods we archive that legitimately carry no artist/album/track envelope. They
+# are excluded from the "unexpected shape" count, so that count stays a usable
+# signal: a drift in a getinfo response must not be masked by the presence of the
+# methods we already know have another shape.
+METHODS_WITHOUT_ENTITY_ENVELOPE = frozenset(
+    {
+        "artist.getsimilar",
+        "artist.gettoptags",
+        "artist.search",
+        "album.search",
+        "track.search",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +181,31 @@ class DerivationResult:
     tag_edges: list[DerivedTagEdge] = field(default_factory=list)
     similarities: list[DerivedSimilarity] = field(default_factory=list)
     aliases: list[DerivedAlias] = field(default_factory=list)
+
+    # Observations that produced no entity because their shape was not recognised
+    # at all. This exists because the failure mode of a parsing mismatch is
+    # *absence*: an unrecognised payload yields fewer entities and nothing else
+    # says so. A count that grows is the only signal that Last.fm's response shape
+    # has drifted, or that a method we do not model is being archived.
+    #
+    # Note this counts by *response*, not per entity kind, and it legitimately
+    # includes methods outside the structural derivation (artist.getsimilar,
+    # *.search), which carry no artist/album/track envelope by design.
+    skipped_unrecognised_shape: int = 0
+    skipped_expected_no_envelope: int = 0
+
+    @property
+    def observations_with_entities(self) -> int:
+        return len(self.artists) + len(self.albums) + len(self.tracks)
+
+    @property
+    def unexpected_shapes(self) -> int:
+        """Bodies we could not use that we also did not expect to be envelope-free.
+
+        This is the number worth alerting on: zero means every archived body was
+        either understood or is one of the methods known to carry another shape.
+        """
+        return self.skipped_unrecognised_shape
 
     def entities(self) -> list[DerivedEntity]:
         return [*self.artists, *self.albums, *self.tracks]
@@ -323,6 +361,8 @@ def _group_observations(
             continue
         identity, components = _entity_identity_for(kind, payload)
         if not identity:
+            # No name and no MBID: nothing to key on. Counted by the caller as an
+            # unrecognised response, which is the signal that matters.
             continue
         parsed.append((observation, payload, identity, components))
 
@@ -657,6 +697,20 @@ def derive_all(
         *derive_tag_edges("album", albums),
         *derive_tag_edges("track", tracks),
     ]
+
+    # Counted by response id and by what the derivation *actually produced*, not by
+    # whether an envelope happens to be present: a body can carry an {"artist": ...}
+    # envelope and still be unusable (no name and no MBID), and that is precisely the
+    # silent-loss case this counter exists for. Responses that yielded no entity
+    # anywhere, and whose method was not expected to be envelope-free, are the signal.
+    produced = {entity.latest_response_id for entity in (*artists, *albums, *tracks)}
+    without_expected_envelope = {
+        observation.response_id
+        for observation in observations
+        if observation.method in METHODS_WITHOUT_ENTITY_ENVELOPE
+    }
+    all_responses = {observation.response_id for observation in observations}
+
     return DerivationResult(
         artists=artists,
         albums=albums,
@@ -664,6 +718,10 @@ def derive_all(
         tag_edges=tag_edges,
         similarities=derive_similarities(artists, observations, owners=similarity_owners),
         aliases=derive_aliases(alias_corrections),
+        # Bodies that produced nothing, split by whether the method was expected to
+        # be envelope-free.
+        skipped_unrecognised_shape=len(all_responses - produced - without_expected_envelope),
+        skipped_expected_no_envelope=len(without_expected_envelope),
     )
 
 

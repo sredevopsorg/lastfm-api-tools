@@ -486,3 +486,75 @@ def test_assign_ids_is_deterministic() -> None:
     # Every derived table gets deterministic ids, not just the entity ones: the
     # graph tables would otherwise take sequence values and differ between rebuilds.
     assert set(ids) == set(DERIVED_TABLES)
+
+
+# ------------------------------------------------- silent-loss detection, live
+
+
+async def test_healthy_archive_reports_zero_unexpected_shapes(session_factory) -> None:  # type: ignore[no-untyped-def]
+    """The number an operator alerts on: zero when the derivation understands everything."""
+    async with session_factory() as session:
+        await _seed(session)
+        report = await reindex(session, dry_run=True)
+
+    assert report.unexpected_shapes == 0
+    # artist.getsimilar is archived but carries another shape, so it is expected.
+    assert report.expected_no_envelope == 1
+
+
+async def test_an_unusable_body_shows_up_in_the_report(session_factory) -> None:  # type: ignore[no-untyped-def]
+    """A regression that drops data must be visible as a number, not as absence."""
+    async with session_factory() as session:
+        await _seed(session)
+        store = ArchiveStore(session, _archive_settings())
+        await store.record(
+            Observation(
+                method="artist.getinfo",
+                params={"artist": "???", "autocorrect": "1"},
+                http_status=200,
+                duration_ms=5,
+                # An artist envelope with nothing to key on.
+                body={"artist": {"url": "https://www.last.fm/music/unknown"}},
+                user_agent="test",
+            )
+        )
+        await session.commit()
+
+        report = await reindex(session, dry_run=True)
+
+    assert report.unexpected_shapes == 1, "the discarded body is reported"
+    assert report.artists == 1, "and the rest of the archive still derives"
+
+
+async def test_describe_archive_names_the_offending_method(
+    session_factory,
+    database_url: str,  # type: ignore[no-untyped-def]
+) -> None:
+    """A count alone is not a diagnosis; the method and keys are."""
+    from metaedit.archive.reindex import describe_archive
+    from metaedit.config import Settings
+
+    async with session_factory() as session:
+        await _seed(session)
+        store = ArchiveStore(session, _archive_settings())
+        await store.record(
+            Observation(
+                method="artist.getinfo",
+                params={"artist": "???", "autocorrect": "1"},
+                http_status=200,
+                duration_ms=5,
+                body={"artist": {"url": "https://www.last.fm/music/unknown"}},
+                user_agent="test",
+            )
+        )
+        await session.commit()
+
+    settings = Settings(_env_file=None, DATABASE_URL=database_url)  # type: ignore[call-arg]
+    report = await describe_archive(settings)
+
+    assert report["shapes"]["unexpected"] == 1
+    assert report["shapes"]["expected_no_envelope"] == 1
+    assert any(key.startswith("artist.getinfo") for key in report["shapes"]["unexpected_bodies"]), (
+        "the offending method must be named"
+    )
+    assert report["would_derive"]["artists"] == 1

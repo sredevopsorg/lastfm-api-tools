@@ -82,6 +82,21 @@ def _cmd_archive_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_archive_entities(args: argparse.Namespace) -> int:
+    """What the archive currently holds, and what the derivation cannot use.
+
+    This is the diagnostic for the silent failure mode: a parsing mismatch shows up
+    as entities that never appeared, and without this the only symptom is a smaller
+    number than expected.
+    """
+    from metaedit.archive.reindex import describe_archive
+
+    settings = get_settings()
+    report = asyncio.run(describe_archive(settings, limit=args.limit))
+    print(json.dumps(report, indent=2, default=str))
+    return 0
+
+
 def _cmd_reindex(args: argparse.Namespace) -> int:
     from metaedit.archive.reindex import ReindexError, reindex_with_settings
 
@@ -110,6 +125,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     stats = sub.add_parser("archive-stats", help="report archive size against the ToS cap")
     stats.set_defaults(func=_cmd_archive_stats)
+
+    entities = sub.add_parser(
+        "archive-entities",
+        help="what the archive holds, and which bodies the derivation cannot use",
+    )
+    entities.add_argument("--limit", type=int, default=20, help="unrecognised bodies to list")
+    entities.set_defaults(func=_cmd_archive_entities)
 
     reindex = sub.add_parser(
         "reindex", help="rebuild derived tables from the raw archive (no network access)"

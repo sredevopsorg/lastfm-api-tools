@@ -216,12 +216,19 @@ uv run metaedit prune-raw --keep-days 365        # report; add --yes to actually
 uv run metaedit reindex                          # rebuild the derived layer
 uv run metaedit reindex --dry-run                # what a rebuild would change
 uv run metaedit reindex --only artist            # one table family
+uv run metaedit archive-entities                 # what is archived, and what is not understood
 ```
 
 `reindex` needs no network access and never writes to the raw layer, so it is safe
 to run at any time, and safe to interrupt: the swap is one transaction, so a failure
 leaves the previous derived tables untouched. Its `--dry-run` is the reviewer's tool
 for a parsing or policy change.
+
+Because the failure mode of a parsing mismatch is *absence* — fewer entities, with
+every count downstream still looking plausible — the report carries a
+`unexpected_shapes` count. **Zero is healthy.** A rise means archived bodies are no
+longer understood, and `metaedit archive-entities` names the offending method and
+payload keys.
 
 The contract it implements is fixed in
 [`docs/design/0003-derivation-and-reindex.md`](docs/design/0003-derivation-and-reindex.md).

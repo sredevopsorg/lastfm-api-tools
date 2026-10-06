@@ -207,6 +207,31 @@ It becomes a real optimisation when a full rebuild is measured to be too slow �
 which needs a dataset far larger than anything tested so far. `--since` reports
 what it actually derived from, so the flag never lies about its own behaviour.
 
+## 7a. Silent loss must be visible
+
+The failure mode of a parsing mismatch is **absence**: an unrecognised payload
+shape simply yields fewer entities, and every count downstream looks plausible. A
+derived layer that quietly discards data is worse than one that fails, because
+nothing prompts an investigation.
+
+So the derivation counts bodies that produced nothing:
+
+* `unexpected_shapes` — archived bodies that yielded no entity and whose method was
+  not expected to be envelope-free. **Zero is the healthy value**, and a rise is the
+  signal that Last.fm's response shape has drifted or that a new method is being
+  archived which the derivation does not model.
+* `expected_no_envelope` — methods that legitimately carry another shape
+  (`artist.getsimilar`, `*.search`). Held separately so they cannot mask a real
+  regression.
+
+Counted **by response id**, not per entity kind, so one body is one problem. A body
+can carry an `{"artist": ...}` envelope and still be unusable (no name and no
+MBID), so the count is driven by what the derivation *produced*, never by inspecting
+for envelopes — inspecting for envelopes is exactly what hides that case.
+
+`metaedit archive-entities` reports both counts plus the method and top-level keys
+of each unexpected body, because a number is not a diagnosis.
+
 ## 8. What reindex must NOT do
 
 - **Never touch the raw layer.** `lastfm_request` and `lastfm_response` are

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.adapters.lastfm.canonical import canonical_params, normalize_name
 from metaedit.archive.derive import (
+    METHODS_WITHOUT_ENTITY_ENVELOPE,
     DerivationResult,
     DerivedEntity,
     RawObservation,
@@ -87,6 +88,12 @@ class ReindexReport:
     entity_tags: int = 0
     observations: int = 0
     response_bodies: int = 0
+    # Archived bodies that carried no entity envelope and were not expected to be
+    # envelope-free. A number that grows means the derivation is silently discarding
+    # data, which is otherwise invisible; zero is the healthy value.
+    unexpected_shapes: int = 0
+    # Bodies from methods known to carry another shape (artist.getsimilar, *.search).
+    expected_no_envelope: int = 0
     duration_ms: int = 0
     changes: dict[str, Any] = field(default_factory=dict)
 
@@ -103,6 +110,8 @@ class ReindexReport:
                 "entity_tags": self.entity_tags,
                 "observations": self.observations,
                 "response_bodies": self.response_bodies,
+                "unexpected_shapes": self.unexpected_shapes,
+                "expected_no_envelope": self.expected_no_envelope,
             },
             "duration_ms": self.duration_ms,
             "changes": self.changes,
@@ -549,6 +558,8 @@ async def reindex(
         entity_tags=len(derive_entity_tag_counts(result.tag_edges)),
         observations=len(observations),
         response_bodies=len({observation.response_id for observation in observations}),
+        unexpected_shapes=result.skipped_unrecognised_shape,
+        expected_no_envelope=result.skipped_expected_no_envelope,
     )
 
     if dry_run:
@@ -664,6 +675,75 @@ def watermark(now: datetime | None = None, *, days: int = 0) -> datetime:
     return base - timedelta(days=days)
 
 
+async def describe_archive(settings: Settings, *, limit: int = 20) -> dict[str, Any]:
+    """Summarise what is archived and what the derivation would make of it.
+
+    Runs the derivation in memory without writing, so it is safe at any time. The
+    interesting part is ``unrecognised``: archived bodies that carry no artist,
+    album or track envelope, or that had nothing to key on. Those are invisible in
+    the entity counts, so they are listed explicitly.
+    """
+    init_engine(settings)
+    factory = get_session_factory()
+    async with factory() as session:
+        observations = await load_observations(session)
+        owners = await load_similarity_owners(session)
+        corrections = await load_alias_corrections(session)
+        current = await count_rows(session)
+
+    result = derive_all(observations, alias_corrections=corrections, similarity_owners=owners)
+
+    by_method: dict[str, int] = {}
+    for observation in observations:
+        by_method[observation.method] = by_method.get(observation.method, 0) + 1
+
+    # Which bodies produced nothing. Deliberately driven by the derivation's own
+    # output rather than by inspecting envelopes: a body can carry an {"artist": ...}
+    # envelope and still be unusable, and listing by envelope would hide exactly the
+    # rows an operator needs to see.
+    produced = {entity.latest_response_id for entity in result.entities()}
+    unexpected_shapes: dict[str, int] = {}
+    for observation in observations:
+        if observation.response_id in produced:
+            continue
+        if observation.method in METHODS_WITHOUT_ENTITY_ENVELOPE:
+            continue
+        key = f"{observation.method}: {','.join(sorted(observation.body)) or '<empty>'}"
+        unexpected_shapes[key] = unexpected_shapes.get(key, 0) + 1
+
+    return {
+        "raw": {
+            "observations_used": len(observations),
+            "distinct_bodies": len({o.response_id for o in observations}),
+            "by_method": dict(sorted(by_method.items())),
+        },
+        "derived_now": current,
+        "would_derive": {
+            "artists": len(result.artists),
+            "albums": len(result.albums),
+            "tracks": len(result.tracks),
+            "tag_edges": len(result.tag_edges),
+            "similarities": len(result.similarities),
+            "aliases": len(result.aliases),
+            "entity_tags": len(derive_entity_tag_counts(result.tag_edges)),
+        },
+        "shapes": {
+            "unexpected": result.skipped_unrecognised_shape,
+            "expected_no_envelope": result.skipped_expected_no_envelope,
+            "note": (
+                "'unexpected' counts archived bodies with no artist/album/track envelope "
+                "that were not expected to lack one -- zero is healthy, and a rise means "
+                "lastfm's response shape has drifted or a method was archived that the "
+                "derivation does not model. 'expected_no_envelope' counts methods that "
+                "legitimately carry another shape."
+            ),
+            "unexpected_bodies": dict(
+                sorted(unexpected_shapes.items(), key=lambda item: -item[1])[: max(limit, 0)]
+            ),
+        },
+    }
+
+
 async def derived_summary(session: AsyncSession) -> dict[str, Any]:
     """Counts plus the newest observation time, for the stats endpoint."""
     counts = await count_rows(session)
@@ -687,6 +767,7 @@ __all__ = [
     "assign_ids",
     "count_rows",
     "derived_summary",
+    "describe_archive",
     "load_alias_corrections",
     "load_observations",
     "load_similarity_owners",

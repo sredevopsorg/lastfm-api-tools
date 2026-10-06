@@ -529,3 +529,72 @@ def test_aliases_reject_a_missing_canonical_identity() -> None:
 def test_aliases_are_sorted_deterministically() -> None:
     aliases = derive_aliases([("z", "mbid:z", BASE), ("a", "mbid:a", BASE)])
     assert [alias.requested_name_norm for alias in aliases] == ["a", "z"]
+
+
+# ------------------------------------------------------- silent-loss detection
+
+
+def test_unusable_bodies_are_counted_not_silently_dropped() -> None:
+    """The failure mode of a parsing mismatch is *absence*.
+
+    An archived body can carry an ``{"artist": ...}`` envelope and still be
+    unusable, because it has no name and no MBID to key on. That body yields no
+    entity, and without a counter the only symptom is a smaller number than
+    expected.
+    """
+    observations = [
+        obs(artist_body(), request_id=1),
+        obs({"artist": {"url": "https://www.last.fm/music/unknown"}}, minutes=5, request_id=2),
+    ]
+    result = derive_all(observations)
+    assert len(result.artists) == 1, "the usable body still derives"
+    assert result.skipped_unrecognised_shape == 1, "the unusable body is reported"
+    assert result.unexpected_shapes == 1
+
+
+def test_expected_envelope_free_methods_are_not_counted_as_unexpected() -> None:
+    """Otherwise the signal drowns in legitimate non-entity responses."""
+    observations = [
+        obs(artist_body(), request_id=1),
+        obs(
+            {"similarartists": {"artist": [{"name": "Madonna"}]}},
+            minutes=5,
+            request_id=2,
+            method="artist.getsimilar",
+        ),
+        obs(
+            {"results": {"artistmatches": {"artist": []}}},
+            minutes=6,
+            request_id=3,
+            method="artist.search",
+        ),
+    ]
+    result = derive_all(observations)
+    assert result.skipped_unrecognised_shape == 0, "these methods carry another shape"
+    assert result.skipped_expected_no_envelope == 2
+
+
+def test_a_healthy_archive_reports_no_unexpected_shapes() -> None:
+    observations = [
+        obs(artist_body(), request_id=1),
+        obs({"album": {"name": "Believe", "artist": "Cher"}}, request_id=2),
+        obs({"track": {"name": "Believe", "artist": {"name": "Cher"}}}, request_id=3),
+    ]
+    assert derive_all(observations).unexpected_shapes == 0
+
+
+def test_the_counter_is_per_response_not_per_kind() -> None:
+    """One body must not be counted once for each entity kind it fails."""
+    observations = [obs({"album": {"url": "x"}}, request_id=1)]
+    result = derive_all(observations)
+    assert result.skipped_unrecognised_shape == 1
+
+
+def test_repeated_identical_unusable_bodies_count_once() -> None:
+    """Content addressing means one stored body, so one problem, not five."""
+    body = {"artist": {"url": "x"}}
+    observations = [
+        obs(body, minutes=offset, request_id=offset + 1, response_id="a" * 64)
+        for offset in range(5)
+    ]
+    assert derive_all(observations).skipped_unrecognised_shape == 1
