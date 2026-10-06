@@ -13,8 +13,8 @@ field-level diff, and apply the accepted changes back to Jellyfin.
 
 ## Status
 
-Under construction, phase by phase. **Stopped deliberately after phase 3**, at the
-owner's request, before the mapping/diff layer is implemented.
+Under construction, phase by phase. Phases 0–5 are implemented and verified. Bulk editing
+and the UI remain.
 
 | Area | State |
 |---|---|
@@ -26,8 +26,9 @@ owner's request, before the mapping/diff layer is implemented.
 | Last.fm client: typed models, shared rate limiter, backoff, archive-first reads | **done** |
 | Archive writes: append-only request log, content-addressed bodies, cap policy | **done** |
 | Derivation into entity/tag/similarity tables, `reindex` | **done** |
-| Tag policy, mapping, confidence, diff | **next** |
-| Apply, snapshot, undo, bulk editing | planned (phases 5–6) |
+| Tag policy, mapping, confidence, diff | **done** |
+| Apply, snapshot, undo | **done** |
+| Bulk editing (SSE) | **next** |
 | Library browser, editor, archive explorer UI | planned (phase 7) |
 
 `metaedit reindex` derives the structured layer from the raw archive: entity rows
@@ -97,6 +98,39 @@ own. Put an authenticating proxy in front of it before exposing it anywhere.
 | `GET /api/items/{id}/state` | The full writable field set for one item, plus `etag` and lock flags. |
 | `POST /api/items/states` | The same, batched — the multi-select path for bulk editing. |
 | `POST /api/items/{id}/refresh` | Ask Jellyfin to re-run *its* providers. Separate from our edits by design. |
+| `POST /api/items/{id}/candidates` | Archived Last.fm entities matching this item, scored. Reads only. |
+| `POST /api/items/{id}/diff` | The exact changes applying a candidate would make. **Writes nothing.** |
+| `POST /api/items/{id}/apply` | Apply a reviewed change set. Requires `confirm: true`. |
+| `GET /api/items/{id}/snapshots` | Snapshot history, newest first. |
+| `POST /api/snapshots/{id}/revert` | One-click undo. Requires `confirm=true`. |
+
+### Editing safely
+
+The edit flow is ordered so that a write is never reachable without first seeing what
+it would do, and "apply whatever Last.fm says" is not expressible:
+
+```
+candidates  →  diff  →  apply  →  snapshots  →  revert
+ (reads)     (writes   (writes)    (reads)     (writes)
+             nothing)
+```
+
+Four properties hold on every write, and each is tested:
+
+1. **The payload is always the complete writable field set.** `POST /Items/{id}` is a
+   full overwrite, so a field omitted from the body is nulled. Anything not selected
+   is carried through at its current value instead (ADR 0003).
+2. **A snapshot is written before the item is.** A failed write leaves a harmless
+   orphaned snapshot; the reverse ordering would leave an unrecoverable edit.
+3. **A stale `Etag` is refused with 409** and nothing is written, so a reviewed change
+   set cannot silently revert an edit made in Jellyfin meanwhile (ADR 0007).
+4. **Only planned fields may be selected.** Naming any other field is a 422, because
+   on a full-overwrite API a field the caller can name but we did not plan is one they
+   could destroy.
+
+`confirm: true` is required on apply, and an omitted selection means the plan's
+default — which is empty for any match that needs review, so an unreviewed match
+writes nothing at all.
 
 ## Server requirements
 

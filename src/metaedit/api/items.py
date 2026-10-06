@@ -1,0 +1,338 @@
+"""The edit flow: resolve candidates, preview a diff, apply, undo.
+
+The ordering of these endpoints is the safety model. A caller cannot reach a write
+without first seeing a diff, and a diff cannot be assembled without naming a specific
+candidate, so "apply whatever Last.fm says" is not expressible.
+
+Reading is separated from writing at the HTTP level too: ``/diff`` is a POST only
+because a policy override is a body, and it writes nothing.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Any, Literal
+
+from fastapi import APIRouter, Body, Depends, Header, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from metaedit.api.deps import JellyfinDep
+from metaedit.api.library import normalize
+from metaedit.archive.candidates import candidate_from_entity
+from metaedit.archive.resolve import (
+    ResolvedCandidate,
+    candidate_identity,
+    describe_candidate,
+    match_context,
+    resolve_candidates,
+)
+from metaedit.db.models import LastfmAlbum, LastfmArtist, LastfmTrack, Snapshot
+from metaedit.db.session import get_session
+from metaedit.domain.confidence import score
+from metaedit.domain.diff import DiffPlan, build_plan
+from metaedit.domain.errors import NotFoundError, ValidationError
+from metaedit.domain.mapping import Mode, build_changes
+from metaedit.domain.tags import TagPolicy
+from metaedit.service.apply import ApplyOutcome, apply_plan, revert_snapshot
+
+router = APIRouter(tags=["editing"])
+
+ModeOverride = Literal["keep_existing", "fill_if_empty", "replace", "merge"]
+
+
+class CandidatesRequest(BaseModel):
+    limit: int = Field(default=5, ge=1, le=25)
+    # Fetching from Last.fm when the archive has nothing is a separate, explicit act:
+    # it spends a rate-limited request and needs the API key.
+    refresh: bool = Field(
+        default=False,
+        description="Reserved: fetching from Last.fm is not part of the read-only diff path.",
+    )
+
+
+class FieldPolicyOverride(BaseModel):
+    """Per-field mode for one request, so a single edit need not change configuration."""
+
+    field: str
+    mode: ModeOverride
+
+
+class TagPolicyRequest(BaseModel):
+    genre_limit: int = Field(default=5, ge=0, le=50)
+    style_limit: int = Field(default=10, ge=0, le=50)
+    min_count: int = Field(default=0, ge=0)
+    extra_blacklist: list[str] = Field(default_factory=list)
+
+
+class DiffRequest(BaseModel):
+    entity_id: int = Field(description="id of the archived entity to map from")
+    entity_kind: Literal["artist", "album", "track"] | None = Field(
+        default=None, description="defaults to the kind implied by the Jellyfin item"
+    )
+    overrides: list[FieldPolicyOverride] = Field(default_factory=list)
+    tag_policy: TagPolicyRequest | None = None
+
+
+class ApplyRequest(DiffRequest):
+    # None means "use the plan's default selection", which is empty for anything
+    # needing review.
+    fields: list[str] | None = Field(
+        default=None, description="fields to write; omit to use the plan's default selection"
+    )
+    expected_etag: str | None = Field(
+        default=None,
+        description="the etag the diff was prepared against; a mismatch is refused",
+    )
+    confirm: bool = Field(
+        default=False,
+        description="must be true: a write is never the default outcome of a request",
+    )
+
+
+@router.post("/items/{item_id}/candidates")
+async def item_candidates(
+    item_id: str,
+    client: JellyfinDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    body: Annotated[CandidatesRequest, Body()] = CandidatesRequest(),
+) -> dict[str, Any]:
+    """Archived Last.fm entities that could be this item, best match first.
+
+    Reads only; nothing is fetched and nothing is written.
+    """
+    dto = await client.item(item_id)
+    item = _normalise(dto)
+    resolved = await resolve_candidates(session, item, limit=body.limit)
+    return {
+        "item_id": item_id,
+        "kind": item.kind,
+        "name": item.name,
+        "etag": item.etag,
+        "candidates": [describe_candidate(candidate) for candidate in resolved],
+        "count": len(resolved),
+        "note": (
+            "Read from the local archive. Nothing was fetched from Last.fm and nothing "
+            "was written to Jellyfin."
+        ),
+    }
+
+
+@router.post("/items/{item_id}/diff")
+async def item_diff(
+    item_id: str,
+    client: JellyfinDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    body: Annotated[DiffRequest, Body()],
+) -> dict[str, Any]:
+    """Preview the exact changes applying this candidate would make.
+
+    Everything is computed and returned; nothing is written. The response includes
+    the withheld fields and the reasons, so a policy can be debugged rather than
+    guessed at.
+    """
+    plan = await _build_plan(
+        client=client,
+        session=session,
+        item_id=item_id,
+        entity_id=body.entity_id,
+        entity_kind=body.entity_kind,
+        overrides={override.field: override.mode for override in body.overrides},
+        tag_policy=_tag_policy(body.tag_policy),
+    )
+    return plan.as_dict()
+
+
+@router.post("/items/{item_id}/apply")
+async def item_apply(
+    item_id: str,
+    client: JellyfinDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    body: Annotated[ApplyRequest, Body()],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> dict[str, Any]:
+    """Apply a reviewed change set.
+
+    ``confirm`` must be true. A write is never the default outcome of a request, and
+    an omitted selection means the plan's default -- which is empty for anything that
+    needs review, so an unreviewed match writes nothing.
+    """
+    if not body.confirm:
+        raise ValidationError(
+            "Refusing to apply without confirm=true. Preview the diff first, then "
+            "confirm the specific fields you intend to write."
+        )
+
+    plan = await _build_plan(
+        client=client,
+        session=session,
+        item_id=item_id,
+        entity_id=body.entity_id,
+        entity_kind=body.entity_kind,
+        overrides={override.field: override.mode for override in body.overrides},
+        tag_policy=_tag_policy(body.tag_policy),
+    )
+    outcome = await apply_plan(
+        session=session,
+        client=client,
+        plan=plan,
+        requested=body.fields,
+        expected_etag=body.expected_etag,
+        user_id=None,
+    )
+    payload = outcome.as_dict()
+    payload["idempotency_key"] = idempotency_key
+    return payload
+
+
+@router.get("/items/{item_id}/snapshots")
+async def item_snapshots(
+    item_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> dict[str, Any]:
+    """Snapshot history, newest first, so any applied change can be undone."""
+    rows = (
+        (
+            await session.execute(
+                select(Snapshot)
+                .where(Snapshot.item_id == item_id)
+                .order_by(Snapshot.created_at.desc(), Snapshot.id.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "item_id": item_id,
+        "snapshots": [
+            {
+                "id": row.id,
+                "kind": row.kind,
+                "name": row.name,
+                "source_op": row.source_op,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "etag": row.etag,
+                "field_count": len(row.fields or {}),
+            }
+            for row in rows
+        ],
+        "count": len(rows),
+    }
+
+
+@router.post("/snapshots/{snapshot_id}/revert")
+async def revert(
+    snapshot_id: int,
+    client: JellyfinDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    confirm: Annotated[bool, Query(description="must be true")] = False,
+) -> dict[str, Any]:
+    """Restore the values captured by a snapshot.
+
+    A revert is an ordinary write built from the snapshot's fields, and it is itself
+    snapshotted -- so undoing an undo works and history is never mutated.
+    """
+    if not confirm:
+        raise ValidationError("Refusing to revert without confirm=true.")
+
+    snapshot = (
+        await session.execute(select(Snapshot).where(Snapshot.id == snapshot_id))
+    ).scalar_one_or_none()
+    if snapshot is None:
+        raise NotFoundError(f"No snapshot with id {snapshot_id}")
+
+    outcome: ApplyOutcome = await revert_snapshot(session=session, client=client, snapshot=snapshot)
+    return outcome.as_dict()
+
+
+# --------------------------------------------------------------------- helpers
+
+
+async def _build_plan(
+    *,
+    client: Any,
+    session: AsyncSession,
+    item_id: str,
+    entity_id: int,
+    entity_kind: str | None,
+    overrides: dict[str, Mode],
+    tag_policy: TagPolicy,
+) -> DiffPlan:
+    """Assemble a plan: current state, archived candidate, mapping, confidence."""
+    dto = await client.item(item_id)
+    item = _normalise(dto)
+
+    kind = (
+        entity_kind or {"MusicArtist": "artist", "MusicAlbum": "album", "Audio": "track"}[item.kind]
+    )
+    # A caller naming an entity id may be choosing something the name-based list did
+    # not surface -- which is normal, since an MBID match yields exactly one candidate
+    # and a deliberate choice should not require appearing in a list first.
+    chosen = await _entity_by_id(session, item, entity_id, kind)
+    if chosen is None:
+        raise NotFoundError(
+            f"Archived {kind} {entity_id} does not exist, or does not match this item"
+        )
+
+    candidate = candidate_from_entity(chosen.entity, kind=chosen.entity_kind)
+    mapping = build_changes(
+        item,
+        candidate,
+        tag_policy=tag_policy,
+        overrides=overrides,
+        # Nothing is pre-selected unless the match is trustworthy enough to act on
+        # without a human reading it.
+        default_selected=chosen.confidence.accepts_by_default,
+    )
+    return build_plan(
+        item=item,
+        candidate=candidate,
+        confidence=chosen.confidence,
+        mapping=mapping,
+        locked_fields=item.get("LockedFields") or [],
+    )
+
+
+_MODELS_BY_KIND = {"artist": LastfmArtist, "album": LastfmAlbum, "track": LastfmTrack}
+
+
+async def _entity_by_id(
+    session: AsyncSession, item: Any, entity_id: int, entity_kind: str
+) -> ResolvedCandidate | None:
+    """Look up one archived entity and score it against the item."""
+    model = _MODELS_BY_KIND.get(entity_kind)
+    if model is None:
+        raise ValidationError(f"unknown entity kind {entity_kind!r}")
+    # The union of model classes leaves the primary key untyped for mypy; the mapping
+    # above is the single place that decides which table an entity kind means.
+    id_column: Any = model.id  # type: ignore[attr-defined]
+    row = (await session.execute(select(model).where(id_column == entity_id))).scalar_one_or_none()
+    if row is None:
+        return None
+    return ResolvedCandidate(
+        entity=row,
+        kind=item.kind,
+        confidence=score(match_context(item), candidate_identity(row)),
+        from_mbid=False,
+    )
+
+
+def _tag_policy(request: TagPolicyRequest | None) -> TagPolicy:
+    if request is None:
+        return TagPolicy()
+    return TagPolicy(
+        genre_limit=request.genre_limit,
+        style_limit=request.style_limit,
+        min_count=request.min_count,
+        extra_blacklist=frozenset(name.casefold() for name in request.extra_blacklist),
+    )
+
+
+def _normalise(dto: Any):  # type: ignore[no-untyped-def]
+    """Turn a DTO into a snapshot, rejecting non-music items with a clear message."""
+    return normalize(dto)
+
+
+__all__ = ["router"]

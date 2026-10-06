@@ -118,7 +118,7 @@ async def items(
 @router.get("/items/{item_id}/state")
 async def item_state(client: JellyfinDep, item_id: str) -> dict[str, Any]:
     dto = await client.item(item_id)
-    kind = _kind_of(dto)
+    kind = kind_of(dto)
     return from_dto(dto.model_dump(), kind).as_state()
 
 
@@ -128,7 +128,7 @@ async def item_states(client: JellyfinDep, item_ids: list[str]) -> list[dict[str
     dtos = await client.items_by_ids(item_ids)
     states: list[dict[str, Any]] = []
     for dto in dtos:
-        kind = _kind_of(dto)
+        kind = kind_of(dto)
         states.append(from_dto(dto.model_dump(), kind).as_state())
     return states
 
@@ -144,7 +144,7 @@ async def refresh_item(client: JellyfinDep, item_id: str) -> dict[str, str]:
     return {"status": "queued"}
 
 
-def _kind_of(dto: BaseItemDto) -> ItemKind:
+def kind_of(dto: BaseItemDto) -> ItemKind:
     item_type = dto.Type
     if item_type in ("MusicArtist", "MusicAlbum", "Audio"):
         return item_type  # type: ignore[return-value]
@@ -154,5 +154,5 @@ def _kind_of(dto: BaseItemDto) -> ItemKind:
 
 
 def normalize(dto: BaseItemDto) -> NormalizedItem:
-    """Shared helper so callers never hand-roll the DTO-to-snapshot mapping."""
-    return from_dto(dto.model_dump(), _kind_of(dto))
+    """The DTO-to-snapshot mapping, in one place for every caller."""
+    return from_dto(dto.model_dump(), kind_of(dto))
