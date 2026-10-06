@@ -68,8 +68,15 @@ class BulkApplyRequest(BaseModel):
     job_id: str = Field(description="from a /bulk/diff run")
     fields: list[str] | None = Field(
         default=None,
-        description="fields to write; omit to use each item's default selection, which "
-        "is empty for anything needing review",
+        description="fields to write for every item; omit to use each item's default "
+        "selection, which is empty for anything needing review",
+    )
+    selections: dict[str, list[str]] | None = Field(
+        default=None,
+        description="per-item fields, keyed by item id. This is what review produces: an "
+        "album and an artist do not share a field set, so one list for both would either "
+        "write a field an item should not change or skip one it should. An item absent "
+        "from the map writes nothing.",
     )
     confirm: bool = Field(default=False, description="must be true")
 
@@ -170,7 +177,15 @@ async def bulk_apply(
         )
 
     return StreamingResponse(
-        _stream(bulk.apply_job(session=session, client=client, job=job, fields=body.fields)),
+        _stream(
+            bulk.apply_job(
+                session=session,
+                client=client,
+                job=job,
+                fields=body.fields,
+                selections=body.selections,
+            )
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )

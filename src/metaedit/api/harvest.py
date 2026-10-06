@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.api.deps import JellyfinDep, LastfmDep
-from metaedit.api.schemas import HarvestItemResponse
+from metaedit.api.schemas import HarvestItemResponse, HarvestStreamEvent
 from metaedit.archive.reindex import reindex
 from metaedit.db.session import get_session
 from metaedit.domain.errors import NotFoundError, ValidationError
@@ -118,7 +118,16 @@ async def _stream(
     yield _sse({"type": "done"})
 
 
-@router.post("/harvest")
+@router.post(
+    "/harvest",
+    responses={
+        200: {
+            "model": HarvestStreamEvent,
+            "description": "Server-Sent Events, one frame per harvested item.",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
 async def harvest_batch(
     client: JellyfinDep,
     lastfm: LastfmDep,

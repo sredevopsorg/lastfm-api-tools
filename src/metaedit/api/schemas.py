@@ -473,3 +473,72 @@ class HarvestBatchResponse(BaseModel):
     items: int
     found: int
     missing: int
+
+
+# ---------------------------------------------------------------- harvest events
+
+
+class HarvestSearchAlternative(BaseModel):
+    name: str
+    artist: str | None
+    url: str | None
+    listeners: int | None
+
+
+class HarvestItemEvent(BaseModel):
+    """One harvested item, as a stream frame.
+
+    Carries the same fields as ``HarvestItemResponse`` plus the stream's position, so the
+    batch event and the single-item response cannot describe different things.
+    """
+
+    type: Literal["item"] = "item"
+    index: int
+    total: int
+    item_id: str
+    name: str
+    kind: str
+    derived_query: dict[str, str | None]
+    found: bool
+    methods: list[str]
+    response_ids: list[str]
+    from_archive: int
+    error: str | None
+    error_code: str | None
+    alternatives: list[HarvestSearchAlternative]
+
+
+class HarvestSummaryEvent(BaseModel):
+    type: Literal["summary"] = "summary"
+    items: int
+    found: int
+    missing: int
+
+
+class HarvestReindexedEvent(BaseModel):
+    """The derived layer was rebuilt, which is what makes the fetched data usable."""
+
+    type: Literal["reindexed"] = "reindexed"
+    artists: int
+    albums: int
+    tracks: int
+    tag_edges: int
+    similarities: int
+    aliases: int
+    entity_tags: int
+    observations: int
+    response_bodies: int
+    unexpected_shapes: int
+    expected_no_envelope: int
+
+
+class HarvestErrorEvent(BaseModel):
+    type: Literal["error"] = "error"
+    code: str
+    message: str
+
+
+HarvestStreamEvent = Annotated[
+    HarvestItemEvent | HarvestSummaryEvent | HarvestReindexedEvent | HarvestErrorEvent,
+    Field(discriminator="type"),
+]

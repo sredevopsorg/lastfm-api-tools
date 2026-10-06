@@ -56,6 +56,31 @@ services:
       timeout: 3s
       retries: 30
 
+  # A stub Last.fm, so the harvest path is exercised without the internet and without
+  # spending a real rate limit. A suite that needs a third-party service to pass is a
+  # suite that fails for reasons unrelated to the code.
+  lastfm:
+    build:
+      context: .
+      dockerfile: tests/e2e/Dockerfile.stub
+      args:
+        STUB_MODULE: stub_lastfm.py
+        STUB_PORT: '8077'
+    environment:
+      STUB_LASTFM_KEY: e2e-lastfm-key
+      STUB_PORT: '8077'
+    ports:
+      - '18077:8077'
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8077/health')"
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
   # Migrations as their own idempotent step, never at app startup: with more than one
   # replica every app would race to migrate the same schema.
   migrate:
@@ -72,9 +97,9 @@ services:
     working_dir: /app
     restart: 'no'
 
-  # Seeds the archive once, then exits. The app waits for it, so the UI never starts
-  # against an empty archive and a "no candidates" screen cannot be mistaken for a
-  # working one.
+  # Seeds the archive with one artist, so the archive explorer has something to show
+  # before any harvesting has run. The harvest journey deliberately does *not* rely on
+  # this: it fetches through the stub Last.fm, which is the flow under test.
   seed:
     build:
       context: .
@@ -89,7 +114,9 @@ services:
       DATABASE_URL: postgresql+psycopg://metaedit:metaedit@postgres:5432/metaedit
       JELLYFIN_URL: http://stub:8096
       JELLYFIN_API_KEY: e2e-stub-admin-key
-      LASTFM_API_KEY: e2e-not-used
+      # Pointed at the stub, so harvesting works offline and deterministically.
+      LASTFM_API_KEY: e2e-lastfm-key
+      LASTFM_API_ROOT: http://lastfm:8077/2.0/
       LOG_JSON: 'false'
       ARCHIVE_ENABLED: 'true'
     # Baked into a dedicated `seed` target rather than mounted: the runtime image ships
@@ -109,6 +136,8 @@ services:
       migrate:
         condition: service_completed_successfully
       stub:
+        condition: service_healthy
+      lastfm:
         condition: service_healthy
       seed:
         condition: service_completed_successfully
@@ -139,7 +168,9 @@ services:
         condition: service_healthy
     environment:
       E2E_BASE_URL: http://app:8080
+      E2E_API_URL: http://app:8080
       E2E_STUB_URL: http://stub:8096
+      E2E_LASTFM_URL: http://lastfm:8077
       CI: '1'
     working_dir: /work
     volumes:

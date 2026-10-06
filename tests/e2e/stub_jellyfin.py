@@ -86,7 +86,36 @@ def _artist(
     return item
 
 
+def _album(item_id: str, name: str, album_artist: str, mbid: str | None) -> dict[str, Any]:
+    """An album as the server sends it: scalar `AlbumArtist`, no `AlbumArtists` array.
+
+    Reproducing that spelling matters -- reading only the array left an album with no
+    artist, which made the Last.fm lookup impossible to derive.
+    """
+    return {
+        "Id": item_id,
+        "Type": "MusicAlbum",
+        "Name": name,
+        "Etag": f"etag-{item_id}-1",
+        "SourceType": "Library",
+        "AlbumArtist": album_artist,
+        "Artists": [album_artist],
+        "Genres": [],
+        "Tags": ["keep-me"],
+        "Studios": [],
+        "ProductionLocations": [],
+        "ProviderIds": {"MusicBrainzAlbum": mbid} if mbid else {},
+        "ExternalUrls": [],
+        "LockedFields": [],
+        "People": [],
+        "Overview": "",
+        "LockData": False,
+    }
+
+
 LIBRARY: dict[str, dict[str, Any]] = {
+    "alb-1": _album("alb-1", "OK Computer", "Radiohead", "b1392450-e666-3926-a536-22c65f834433"),
+    "alb-2": _album("alb-2", "Dummy", "Portishead", None),
     "art-1": _artist(
         "art-1",
         "Radiohead",
@@ -224,9 +253,19 @@ async def items(request: Request) -> dict[str, Any]:
         found = [LIBRARY[i] for i in raw_ids.split(",") if i in LIBRARY]
     else:
         found = list(LIBRARY.values())
+        wanted = (request.query_params.get("includeItemTypes") or "").strip()
+        if wanted:
+            types = {name for name in wanted.split(",") if name}
+            found = [row for row in found if row.get("Type") in types]
         term = (request.query_params.get("searchTerm") or "").lower()
         if term:
             found = [row for row in found if term in str(row.get("Name", "")).lower()]
+        offset = request.query_params.get("startIndex")
+        if offset and str(offset).isdigit():
+            found = found[int(offset) :]
+        limit = request.query_params.get("limit")
+        if limit and str(limit).isdigit():
+            found = found[: int(limit)]
     return {"Items": found, "TotalRecordCount": len(found)}
 
 

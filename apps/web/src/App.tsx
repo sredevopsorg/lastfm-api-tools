@@ -2,6 +2,7 @@ import { NavLink, Route, Routes } from 'react-router-dom'
 import { Library } from './routes/Library'
 import { Editor } from './routes/Editor'
 import { Bulk } from './routes/Bulk'
+import { Review } from './routes/Review'
 import { Archive } from './routes/Archive'
 import { NotFound } from './routes/NotFound'
 
@@ -22,6 +23,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Library />} />
         <Route path="/edit/:itemId" element={<Editor />} />
+        <Route path="/review" element={<Review />} />
         <Route path="/bulk" element={<Bulk />} />
         <Route path="/archive" element={<Archive />} />
         <Route path="*" element={<NotFound />} />

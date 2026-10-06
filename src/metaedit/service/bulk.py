@@ -23,7 +23,7 @@ which is why batch revert survives a restart while a diff job does not.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -290,13 +290,30 @@ async def apply_job(
     client: JellyfinClient,
     job: BulkJob,
     fields: list[str] | None = None,
+    selections: Mapping[str, Sequence[str]] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Apply a reviewed job, isolating failures per item.
 
     Each item is committed independently: a failure on item 37 must not roll back the
     36 already written, because the operator needs to see exactly where it stopped and
     the batch revert must still be able to undo what did happen.
+
+    ``fields`` applies the same field set to every item; ``selections`` gives a per-item
+    set keyed by item id. The per-item form is what review actually produces -- an album
+    and an artist do not have the same fields, and forcing one list onto both would mean
+    either writing a field an item has no business changing or silently skipping one it
+    should. An item absent from ``selections`` falls back to its own default, which is
+    empty for anything needing review, so an omitted item writes nothing.
     """
+
+    def requested_for(item: BulkItem) -> list[str] | None:
+        if selections is None:
+            return fields
+        chosen = selections.get(item.item_id)
+        if chosen is None:
+            return _default_selection_for(job, item)
+        return list(chosen)
+
     if job.applied:
         raise ValidationError(
             f"job {job.job_id} has already been applied; build a new diff to run again"
@@ -319,7 +336,7 @@ async def apply_job(
                 session=session,
                 client=client,
                 plan=item.plan,
-                requested=fields,
+                requested=requested_for(item),
                 batch_id=job.batch_id,
             )
         except (MetaeditError, SelectionError) as exc:
@@ -357,6 +374,16 @@ async def apply_job(
         "failures": failed,
         "batch_revert": f"/api/bulk/{job.batch_id}/revert",
     }
+
+
+def _default_selection_for(job: BulkJob, item: BulkItem) -> list[str]:
+    """What an item would write if nobody ticked anything: its safe default.
+
+    Empty for anything that needs review, which is what makes an un-reviewed item a
+    no-op rather than an uncontrolled write.
+    """
+    del job
+    return list(item.plan.default_selection)
 
 
 async def _apply_one(

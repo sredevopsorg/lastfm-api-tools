@@ -794,6 +794,17 @@
         "title": "ArchiveTagView",
         "type": "object"
       },
+      "Body_harvest_one_api_items__item_id__harvest_post": {
+        "properties": {
+          "search_fallback": {
+            "default": true,
+            "title": "Search Fallback",
+            "type": "boolean"
+          }
+        },
+        "title": "Body_harvest_one_api_items__item_id__harvest_post",
+        "type": "object"
+      },
       "BulkAppliedEvent": {
         "properties": {
           "applied_fields": {
@@ -863,13 +874,31 @@
                 "type": "null"
               }
             ],
-            "description": "fields to write; omit to use each item's default selection, which is empty for anything needing review",
+            "description": "fields to write for every item; omit to use each item's default selection, which is empty for anything needing review",
             "title": "Fields"
           },
           "job_id": {
             "description": "from a /bulk/diff run",
             "title": "Job Id",
             "type": "string"
+          },
+          "selections": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "per-item fields, keyed by item id. This is what review produces: an album and an artist do not share a field set, so one list for both would either write a field an item should not change or skip one it should. An item absent from the map writes nothing.",
+            "title": "Selections"
           }
         },
         "required": [
@@ -2026,6 +2055,494 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HarvestErrorEvent": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "const": "error",
+            "default": "error",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "HarvestErrorEvent",
+        "type": "object"
+      },
+      "HarvestItemEvent": {
+        "description": "One harvested item, as a stream frame.\n\nCarries the same fields as ``HarvestItemResponse`` plus the stream's position, so the\nbatch event and the single-item response cannot describe different things.",
+        "properties": {
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/HarvestSearchAlternative"
+            },
+            "title": "Alternatives",
+            "type": "array"
+          },
+          "derived_query": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Derived Query",
+            "type": "object"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "found": {
+            "title": "Found",
+            "type": "boolean"
+          },
+          "from_archive": {
+            "title": "From Archive",
+            "type": "integer"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "methods": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "response_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Response Ids",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "type": {
+            "const": "item",
+            "default": "item",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "total",
+          "item_id",
+          "name",
+          "kind",
+          "derived_query",
+          "found",
+          "methods",
+          "response_ids",
+          "from_archive",
+          "error",
+          "error_code",
+          "alternatives"
+        ],
+        "title": "HarvestItemEvent",
+        "type": "object"
+      },
+      "HarvestItemResponse": {
+        "description": "The outcome of fetching Last.fm data for one item.",
+        "properties": {
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/SearchAlternativeView"
+            },
+            "title": "Alternatives",
+            "type": "array"
+          },
+          "derived": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Derived"
+          },
+          "derived_query": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Derived Query",
+            "type": "object"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "found": {
+            "title": "Found",
+            "type": "boolean"
+          },
+          "from_archive": {
+            "title": "From Archive",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "methods": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Methods",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "response_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Response Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item_id",
+          "name",
+          "kind",
+          "derived_query",
+          "found",
+          "methods",
+          "response_ids",
+          "from_archive",
+          "error",
+          "error_code",
+          "alternatives"
+        ],
+        "title": "HarvestItemResponse",
+        "type": "object"
+      },
+      "HarvestReindexedEvent": {
+        "description": "The derived layer was rebuilt, which is what makes the fetched data usable.",
+        "properties": {
+          "albums": {
+            "title": "Albums",
+            "type": "integer"
+          },
+          "aliases": {
+            "title": "Aliases",
+            "type": "integer"
+          },
+          "artists": {
+            "title": "Artists",
+            "type": "integer"
+          },
+          "entity_tags": {
+            "title": "Entity Tags",
+            "type": "integer"
+          },
+          "expected_no_envelope": {
+            "title": "Expected No Envelope",
+            "type": "integer"
+          },
+          "observations": {
+            "title": "Observations",
+            "type": "integer"
+          },
+          "response_bodies": {
+            "title": "Response Bodies",
+            "type": "integer"
+          },
+          "similarities": {
+            "title": "Similarities",
+            "type": "integer"
+          },
+          "tag_edges": {
+            "title": "Tag Edges",
+            "type": "integer"
+          },
+          "tracks": {
+            "title": "Tracks",
+            "type": "integer"
+          },
+          "type": {
+            "const": "reindexed",
+            "default": "reindexed",
+            "title": "Type",
+            "type": "string"
+          },
+          "unexpected_shapes": {
+            "title": "Unexpected Shapes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artists",
+          "albums",
+          "tracks",
+          "tag_edges",
+          "similarities",
+          "aliases",
+          "entity_tags",
+          "observations",
+          "response_bodies",
+          "unexpected_shapes",
+          "expected_no_envelope"
+        ],
+        "title": "HarvestReindexedEvent",
+        "type": "object"
+      },
+      "HarvestRequest": {
+        "properties": {
+          "reindex": {
+            "default": true,
+            "description": "rebuild the derived layer so candidates can resolve",
+            "title": "Reindex",
+            "type": "boolean"
+          },
+          "search_fallback": {
+            "default": true,
+            "title": "Search Fallback",
+            "type": "boolean"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/HarvestSelection",
+            "default": {
+              "kind": "artist",
+              "limit": 50,
+              "missing_metadata": false
+            }
+          }
+        },
+        "title": "HarvestRequest",
+        "type": "object"
+      },
+      "HarvestSearchAlternative": {
+        "properties": {
+          "artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist"
+          },
+          "listeners": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listeners"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "name",
+          "artist",
+          "url",
+          "listeners"
+        ],
+        "title": "HarvestSearchAlternative",
+        "type": "object"
+      },
+      "HarvestSelection": {
+        "description": "Which items to fetch for. Mirrors the library browse parameters.",
+        "properties": {
+          "ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "explicit item ids, if known",
+            "title": "Ids"
+          },
+          "kind": {
+            "default": "artist",
+            "enum": [
+              "artist",
+              "album",
+              "song"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "missing_metadata": {
+            "default": false,
+            "description": "only items lacking genres, provider ids or an overview",
+            "title": "Missing Metadata",
+            "type": "boolean"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
+          }
+        },
+        "title": "HarvestSelection",
+        "type": "object"
+      },
+      "HarvestSummaryEvent": {
+        "properties": {
+          "found": {
+            "title": "Found",
+            "type": "integer"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "integer"
+          },
+          "type": {
+            "const": "summary",
+            "default": "summary",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "found",
+          "missing"
+        ],
+        "title": "HarvestSummaryEvent",
+        "type": "object"
+      },
       "InfoResponse": {
         "properties": {
           "app_version": {
@@ -2471,6 +2988,56 @@
           "changes"
         ],
         "title": "ReindexResponse",
+        "type": "object"
+      },
+      "SearchAlternativeView": {
+        "description": "A Last.fm search hit, offered when the derived query missed.\n\nA miss that says only \"not found\" leaves the operator with nothing to do; these give\nthem something to pick.",
+        "properties": {
+          "artist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artist"
+          },
+          "listeners": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listeners"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "name",
+          "artist",
+          "url",
+          "listeners"
+        ],
+        "title": "SearchAlternativeView",
         "type": "object"
       },
       "SnapshotListResponse": {
@@ -3227,6 +3794,80 @@
         ]
       }
     },
+    "/api/harvest": {
+      "post": {
+        "description": "Fetch and archive Last.fm data for a selection, streaming per-item outcomes.\n\nWrites nothing to Jellyfin. Items are reported as they complete, so a run over a\nlarge selection shows progress rather than appearing to hang, and an item that\ncannot be found is reported without stopping the batch.",
+        "operationId": "harvest_batch_api_harvest_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HarvestRequest",
+                "default": {
+                  "reindex": true,
+                  "search_fallback": true,
+                  "selection": {
+                    "kind": "artist",
+                    "limit": 50,
+                    "missing_metadata": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "error": "#/components/schemas/HarvestErrorEvent",
+                      "item": "#/components/schemas/HarvestItemEvent",
+                      "reindexed": "#/components/schemas/HarvestReindexedEvent",
+                      "summary": "#/components/schemas/HarvestSummaryEvent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/HarvestItemEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HarvestSummaryEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HarvestReindexedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HarvestErrorEvent"
+                    }
+                  ],
+                  "title": "Response 200 Harvest Batch Api Harvest Post"
+                }
+              },
+              "text/event-stream": {}
+            },
+            "description": "Server-Sent Events, one frame per harvested item."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Harvest Batch",
+        "tags": [
+          "harvest"
+        ]
+      }
+    },
     "/api/health": {
       "get": {
         "description": "Dependency-free liveness probe.",
@@ -3639,6 +4280,58 @@
         "summary": "Item Diff",
         "tags": [
           "editing"
+        ]
+      }
+    },
+    "/api/items/{item_id}/harvest": {
+      "post": {
+        "description": "Fetch and archive Last.fm data for one item.\n\nReads Jellyfin, spends Last.fm requests, writes nothing to Jellyfin. A miss is a\nreported outcome with search alternatives, not an error status.",
+        "operationId": "harvest_one_api_items__item_id__harvest_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_harvest_one_api_items__item_id__harvest_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HarvestItemResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Harvest One",
+        "tags": [
+          "harvest"
         ]
       }
     },

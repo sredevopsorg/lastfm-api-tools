@@ -240,6 +240,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/harvest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Harvest Batch
+         * @description Fetch and archive Last.fm data for a selection, streaming per-item outcomes.
+         *
+         *     Writes nothing to Jellyfin. Items are reported as they complete, so a run over a
+         *     large selection shows progress rather than appearing to hang, and an item that
+         *     cannot be found is reported without stopping the batch.
+         */
+        post: operations["harvest_batch_api_harvest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -398,6 +422,29 @@ export interface paths {
          *     guessed at.
          */
         post: operations["item_diff_api_items__item_id__diff_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/items/{item_id}/harvest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Harvest One
+         * @description Fetch and archive Last.fm data for one item.
+         *
+         *     Reads Jellyfin, spends Last.fm requests, writes nothing to Jellyfin. A miss is a
+         *     reported outcome with search alternatives, not an error status.
+         */
+        post: operations["harvest_one_api_items__item_id__harvest_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -763,6 +810,14 @@ export interface components {
             /** Rank */
             rank: number;
         };
+        /** Body_harvest_one_api_items__item_id__harvest_post */
+        Body_harvest_one_api_items__item_id__harvest_post: {
+            /**
+             * Search Fallback
+             * @default true
+             */
+            search_fallback: boolean;
+        };
         /** BulkAppliedEvent */
         BulkAppliedEvent: {
             /** Applied Fields */
@@ -791,7 +846,7 @@ export interface components {
             confirm: boolean;
             /**
              * Fields
-             * @description fields to write; omit to use each item's default selection, which is empty for anything needing review
+             * @description fields to write for every item; omit to use each item's default selection, which is empty for anything needing review
              */
             fields?: string[] | null;
             /**
@@ -799,6 +854,13 @@ export interface components {
              * @description from a /bulk/diff run
              */
             job_id: string;
+            /**
+             * Selections
+             * @description per-item fields, keyed by item id. This is what review produces: an album and an artist do not share a field set, so one list for both would either write a field an item should not change or skip one it should. An item absent from the map writes nothing.
+             */
+            selections?: {
+                [key: string]: string[];
+            } | null;
         };
         /** BulkDiffRequest */
         BulkDiffRequest: {
@@ -1193,6 +1255,206 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HarvestErrorEvent */
+        HarvestErrorEvent: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "error";
+        };
+        /**
+         * HarvestItemEvent
+         * @description One harvested item, as a stream frame.
+         *
+         *     Carries the same fields as ``HarvestItemResponse`` plus the stream's position, so the
+         *     batch event and the single-item response cannot describe different things.
+         */
+        HarvestItemEvent: {
+            /** Alternatives */
+            alternatives: components["schemas"]["HarvestSearchAlternative"][];
+            /** Derived Query */
+            derived_query: {
+                [key: string]: string | null;
+            };
+            /** Error */
+            error: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Found */
+            found: boolean;
+            /** From Archive */
+            from_archive: number;
+            /** Index */
+            index: number;
+            /** Item Id */
+            item_id: string;
+            /** Kind */
+            kind: string;
+            /** Methods */
+            methods: string[];
+            /** Name */
+            name: string;
+            /** Response Ids */
+            response_ids: string[];
+            /** Total */
+            total: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "item";
+        };
+        /**
+         * HarvestItemResponse
+         * @description The outcome of fetching Last.fm data for one item.
+         */
+        HarvestItemResponse: {
+            /** Alternatives */
+            alternatives: components["schemas"]["SearchAlternativeView"][];
+            /** Derived */
+            derived?: {
+                [key: string]: number;
+            } | null;
+            /** Derived Query */
+            derived_query: {
+                [key: string]: string | null;
+            };
+            /** Error */
+            error: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /** Found */
+            found: boolean;
+            /** From Archive */
+            from_archive: number;
+            /** Item Id */
+            item_id: string;
+            /** Kind */
+            kind: string;
+            /** Methods */
+            methods: string[];
+            /** Name */
+            name: string;
+            /** Response Ids */
+            response_ids: string[];
+        };
+        /**
+         * HarvestReindexedEvent
+         * @description The derived layer was rebuilt, which is what makes the fetched data usable.
+         */
+        HarvestReindexedEvent: {
+            /** Albums */
+            albums: number;
+            /** Aliases */
+            aliases: number;
+            /** Artists */
+            artists: number;
+            /** Entity Tags */
+            entity_tags: number;
+            /** Expected No Envelope */
+            expected_no_envelope: number;
+            /** Observations */
+            observations: number;
+            /** Response Bodies */
+            response_bodies: number;
+            /** Similarities */
+            similarities: number;
+            /** Tag Edges */
+            tag_edges: number;
+            /** Tracks */
+            tracks: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "reindexed";
+            /** Unexpected Shapes */
+            unexpected_shapes: number;
+        };
+        /** HarvestRequest */
+        HarvestRequest: {
+            /**
+             * Reindex
+             * @description rebuild the derived layer so candidates can resolve
+             * @default true
+             */
+            reindex: boolean;
+            /**
+             * Search Fallback
+             * @default true
+             */
+            search_fallback: boolean;
+            /**
+             * @default {
+             *       "kind": "artist",
+             *       "limit": 50,
+             *       "missing_metadata": false
+             *     }
+             */
+            selection: components["schemas"]["HarvestSelection"];
+        };
+        /** HarvestSearchAlternative */
+        HarvestSearchAlternative: {
+            /** Artist */
+            artist: string | null;
+            /** Listeners */
+            listeners: number | null;
+            /** Name */
+            name: string;
+            /** Url */
+            url: string | null;
+        };
+        /**
+         * HarvestSelection
+         * @description Which items to fetch for. Mirrors the library browse parameters.
+         */
+        HarvestSelection: {
+            /**
+             * Ids
+             * @description explicit item ids, if known
+             */
+            ids?: string[] | null;
+            /**
+             * Kind
+             * @default artist
+             * @enum {string}
+             */
+            kind: "artist" | "album" | "song";
+            /**
+             * Limit
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Missing Metadata
+             * @description only items lacking genres, provider ids or an overview
+             * @default false
+             */
+            missing_metadata: boolean;
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Search */
+            search?: string | null;
+        };
+        /** HarvestSummaryEvent */
+        HarvestSummaryEvent: {
+            /** Found */
+            found: number;
+            /** Items */
+            items: number;
+            /** Missing */
+            missing: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "summary";
+        };
         /** InfoResponse */
         InfoResponse: {
             /** App Version */
@@ -1353,6 +1615,23 @@ export interface components {
             dry_run: boolean;
             /** Duration Ms */
             duration_ms: number;
+        };
+        /**
+         * SearchAlternativeView
+         * @description A Last.fm search hit, offered when the derived query missed.
+         *
+         *     A miss that says only "not found" leaves the operator with nothing to do; these give
+         *     them something to pick.
+         */
+        SearchAlternativeView: {
+            /** Artist */
+            artist: string | null;
+            /** Listeners */
+            listeners: number | null;
+            /** Name */
+            name: string;
+            /** Url */
+            url: string | null;
         };
         /** SnapshotListResponse */
         SnapshotListResponse: {
@@ -1738,6 +2017,40 @@ export interface operations {
             };
         };
     };
+    harvest_batch_api_harvest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["HarvestRequest"];
+            };
+        };
+        responses: {
+            /** @description Server-Sent Events, one frame per harvested item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarvestItemEvent"] | components["schemas"]["HarvestSummaryEvent"] | components["schemas"]["HarvestReindexedEvent"] | components["schemas"]["HarvestErrorEvent"];
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_api_health_get: {
         parameters: {
             query?: never;
@@ -1968,6 +2281,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiffResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    harvest_one_api_items__item_id__harvest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Body_harvest_one_api_items__item_id__harvest_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HarvestItemResponse"];
                 };
             };
             /** @description Validation Error */

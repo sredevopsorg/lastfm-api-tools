@@ -168,6 +168,20 @@ export type BulkRevertedEvent = Schemas['BulkRevertedEvent']
 export type BulkSummaryEvent = Schemas['BulkSummaryEvent']
 export type BulkErrorEvent = Schemas['BulkErrorEvent']
 
+// Harvest events, likewise generated from the backend's stream schemas.
+export type HarvestItemEvent = Schemas['HarvestItemEvent']
+export type HarvestSummaryEvent = Schemas['HarvestSummaryEvent']
+export type HarvestReindexedEvent = Schemas['HarvestReindexedEvent']
+export type HarvestErrorEvent = Schemas['HarvestErrorEvent']
+export type HarvestSearchAlternative = Schemas['HarvestSearchAlternative']
+
+export type HarvestEvent =
+  | HarvestItemEvent
+  | HarvestSummaryEvent
+  | HarvestReindexedEvent
+  | HarvestErrorEvent
+  | { type: 'done' }
+
 export type BulkEvent =
   | BulkItemEvent
   | BulkAppliedEvent

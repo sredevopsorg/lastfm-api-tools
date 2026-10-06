@@ -227,3 +227,31 @@ table.grid th { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
 .event-log li { padding: 0.15rem 0; border-bottom: 1px solid var(--border); }
 .event-log li.ok { color: var(--ok); }
 .event-log li.danger { color: var(--danger); }
+
+/* ------------------------------------------------------------ selection + review */
+
+.selection-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+}
+
+tr.row-selected { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+.review-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+
+.review-item {
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.5rem;
+}
+
+.review-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.review-item .changes { margin-left: 1.5rem; }
