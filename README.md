@@ -325,8 +325,8 @@ Both take `-s` deliberately: the tests print what they found, which is the point
 
 ### Live-verified behaviour
 
-Both suites have now been run against real services (Jellyfin 12.2.0 at
-`j.elclaustro.cl`, and the live Last.fm API). Findings that contradicted the code:
+Both suites have now been run against real services (a self-hosted Jellyfin 12.2.0, and
+the live Last.fm API). Findings that contradicted the code:
 
 **Jellyfin**
 
