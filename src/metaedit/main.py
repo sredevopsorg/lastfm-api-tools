@@ -12,7 +12,7 @@ from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from metaedit.api import archive, errors, health, info, items, library
+from metaedit.api import archive, bulk, errors, health, info, items, library
 from metaedit.config import Settings, get_settings
 from metaedit.db.partitions import ensure_partitions
 from metaedit.db.session import dispose_engine, get_session_factory, init_engine
@@ -35,6 +35,7 @@ def api_router() -> APIRouter:
     router.include_router(archive.router)
     router.include_router(library.router)
     router.include_router(items.router)
+    router.include_router(bulk.router)
     return router
 
 

@@ -13,8 +13,7 @@ field-level diff, and apply the accepted changes back to Jellyfin.
 
 ## Status
 
-Under construction, phase by phase. Phases 0–5 are implemented and verified. Bulk editing
-and the UI remain.
+Under construction, phase by phase. Phases 0–6 are implemented and verified. The UI remains.
 
 | Area | State |
 |---|---|
@@ -28,8 +27,8 @@ and the UI remain.
 | Derivation into entity/tag/similarity tables, `reindex` | **done** |
 | Tag policy, mapping, confidence, diff | **done** |
 | Apply, snapshot, undo | **done** |
-| Bulk editing (SSE) | **next** |
-| Library browser, editor, archive explorer UI | planned (phase 7) |
+| Bulk editing (SSE) | **done** |
+| Library browser, editor, archive explorer UI | **next** (phase 7) |
 
 `metaedit reindex` derives the structured layer from the raw archive: entity rows
 for artists, albums and tracks, tag edges with real popularity counts, similar
@@ -103,6 +102,10 @@ own. Put an authenticating proxy in front of it before exposing it anywhere.
 | `POST /api/items/{id}/apply` | Apply a reviewed change set. Requires `confirm: true`. |
 | `GET /api/items/{id}/snapshots` | Snapshot history, newest first. |
 | `POST /api/snapshots/{id}/revert` | One-click undo. Requires `confirm=true`. |
+| `POST /api/bulk/diff` | **SSE.** Diff every item in a selection; returns a `job_id`. Writes nothing. |
+| `POST /api/bulk/apply` | **SSE.** Apply a reviewed `job_id`. Requires `confirm: true`. |
+| `POST /api/bulk/{batch_id}/revert` | **SSE.** Undo a whole batch. Requires `confirm=true`. |
+| `GET /api/bulk/jobs` | Reviewed diffs still available to apply. |
 
 ### Editing safely
 
@@ -131,6 +134,28 @@ Four properties hold on every write, and each is tested:
 `confirm: true` is required on apply, and an omitted selection means the plan's
 default — which is empty for any match that needs review, so an unreviewed match
 writes nothing at all.
+
+### Bulk editing
+
+Bulk extends the same model, because a mapping mistake at this scale is a
+library-wide event rather than a curiosity. `POST /api/bulk/diff` streams a per-item
+diff and returns a `job_id`; `POST /api/bulk/apply` requires that job id, so an apply
+is never the first request of a session.
+
+- **Only pre-selected fields are written.** A field is pre-selected only when the
+  match was confident enough to act on *unreviewed*. An item with no trustworthy
+  candidate is reported as **skipped with a reason**, never guessed at — dropping it
+  silently would make a batch look complete when it was not.
+- **Failures are isolated per item.** A failure on item 37 does not roll back the 36
+  already written, so the operator can see exactly where it stopped and the batch
+  revert still covers what did happen.
+- **Every write shares a `batch_id`**, persisted on the snapshots, so the whole run
+  reverts as one unit. The batch identity outlives a restart even though the diff job
+  does not — diff jobs are deliberately in-memory because a diff is a pure function of
+  the archive and the current item state, and persisting it would create stale state.
+
+Responses are Server-Sent Events, so a long run reports each item as it happens
+rather than at the end.
 
 ## Server requirements
 

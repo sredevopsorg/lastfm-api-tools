@@ -11,15 +11,17 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from metaedit.adapters.jellyfin.dto import KIND_LABEL, BaseItemDto, ItemKind
+from metaedit.adapters.jellyfin.dto import BaseItemDto, ItemKind
 from metaedit.api.deps import JellyfinDep
-from metaedit.domain.errors import ValidationError
 from metaedit.domain.snapshot import NormalizedItem, from_dto
+from metaedit.service.planning import item_kind_for
 
 router = APIRouter(tags=["library"])
 
 KindParam = Literal["artist", "album", "song"]
 
+# The browse vocabulary is the query surface; the media types come from the service
+# layer so there is one definition of which archive kind a Jellyfin type means.
 _KIND_MAP: dict[KindParam, ItemKind] = {
     "artist": "MusicArtist",
     "album": "MusicAlbum",
@@ -118,7 +120,7 @@ async def items(
 @router.get("/items/{item_id}/state")
 async def item_state(client: JellyfinDep, item_id: str) -> dict[str, Any]:
     dto = await client.item(item_id)
-    kind = kind_of(dto)
+    kind = item_kind_for(dto)
     return from_dto(dto.model_dump(), kind).as_state()
 
 
@@ -128,7 +130,7 @@ async def item_states(client: JellyfinDep, item_ids: list[str]) -> list[dict[str
     dtos = await client.items_by_ids(item_ids)
     states: list[dict[str, Any]] = []
     for dto in dtos:
-        kind = kind_of(dto)
+        kind = item_kind_for(dto)
         states.append(from_dto(dto.model_dump(), kind).as_state())
     return states
 
@@ -144,15 +146,6 @@ async def refresh_item(client: JellyfinDep, item_id: str) -> dict[str, str]:
     return {"status": "queued"}
 
 
-def kind_of(dto: BaseItemDto) -> ItemKind:
-    item_type = dto.Type
-    if item_type in ("MusicArtist", "MusicAlbum", "Audio"):
-        return item_type  # type: ignore[return-value]
-    raise ValidationError(
-        f"{item_type!r} is not an editable music item (expected one of {sorted(KIND_LABEL)})."
-    )
-
-
 def normalize(dto: BaseItemDto) -> NormalizedItem:
-    """The DTO-to-snapshot mapping, in one place for every caller."""
-    return from_dto(dto.model_dump(), kind_of(dto))
+    """The DTO-to-snapshot mapping, delegating the media-type rule to the service layer."""
+    return from_dto(dto.model_dump(), item_kind_for(dto))
