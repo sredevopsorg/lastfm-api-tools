@@ -172,7 +172,12 @@
           "kind",
           "applied",
           "unchanged",
-          "duration_ms"
+          "snapshot_id",
+          "etag_before",
+          "etag_after",
+          "duration_ms",
+          "state",
+          "idempotency_key"
         ],
         "title": "ApplyResponse",
         "type": "object"
@@ -240,7 +245,10 @@
           }
         },
         "required": [
-          "requested"
+          "requested",
+          "canonical_name",
+          "canonical_artist_id",
+          "kind"
         ],
         "title": "ArchiveAliasView",
         "type": "object"
@@ -370,7 +378,17 @@
           "identity",
           "kind",
           "name",
-          "latest_response_id"
+          "mbid",
+          "url",
+          "listeners",
+          "playcount",
+          "overview",
+          "first_seen_at",
+          "last_seen_at",
+          "latest_response_id",
+          "extra",
+          "tags",
+          "similar"
         ],
         "title": "ArchiveEntityDetail",
         "type": "object"
@@ -525,7 +543,16 @@
           "identity",
           "kind",
           "name",
-          "latest_response_id"
+          "mbid",
+          "url",
+          "listeners",
+          "playcount",
+          "overview",
+          "first_seen_at",
+          "last_seen_at",
+          "latest_response_id",
+          "extra",
+          "tags"
         ],
         "title": "ArchiveEntitySummary",
         "type": "object"
@@ -588,6 +615,8 @@
         },
         "required": [
           "name",
+          "mbid",
+          "match",
           "rank"
         ],
         "title": "ArchiveSimilarityView",
@@ -675,6 +704,7 @@
           "response_rows",
           "observations",
           "request_rows",
+          "oldest_request_at",
           "stray_archive_reads",
           "reads",
           "derived",
@@ -707,6 +737,7 @@
         },
         "required": [
           "name",
+          "norm",
           "entity_count"
         ],
         "title": "ArchiveTagCountView",
@@ -757,9 +788,59 @@
         },
         "required": [
           "name",
-          "rank"
+          "rank",
+          "count"
         ],
         "title": "ArchiveTagView",
+        "type": "object"
+      },
+      "BulkAppliedEvent": {
+        "properties": {
+          "applied_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Applied Fields",
+            "type": "array"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "snapshot_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Id"
+          },
+          "type": {
+            "const": "applied",
+            "default": "applied",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "item_id",
+          "name",
+          "applied_fields",
+          "snapshot_id"
+        ],
+        "title": "BulkAppliedEvent",
         "type": "object"
       },
       "BulkApplyRequest": {
@@ -836,6 +917,145 @@
         "title": "BulkDiffRequest",
         "type": "object"
       },
+      "BulkErrorEvent": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "const": "error",
+            "default": "error",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "BulkErrorEvent",
+        "type": "object"
+      },
+      "BulkFailedEvent": {
+        "properties": {
+          "error": {
+            "title": "Error",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "type": {
+            "const": "failed",
+            "default": "failed",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "item_id",
+          "name",
+          "error",
+          "error_code"
+        ],
+        "title": "BulkFailedEvent",
+        "type": "object"
+      },
+      "BulkItemEvent": {
+        "properties": {
+          "applicable": {
+            "title": "Applicable",
+            "type": "boolean"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/DiffResponse"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "skipped_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped Reason"
+          },
+          "type": {
+            "const": "item",
+            "default": "item",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "item_id",
+          "name",
+          "kind",
+          "skipped_reason",
+          "applicable",
+          "diff"
+        ],
+        "title": "BulkItemEvent",
+        "type": "object"
+      },
       "BulkJobListResponse": {
         "properties": {
           "count": {
@@ -898,6 +1118,33 @@
           "applied"
         ],
         "title": "BulkJobSummary",
+        "type": "object"
+      },
+      "BulkRevertedEvent": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "restored_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Restored Fields",
+            "type": "array"
+          },
+          "type": {
+            "const": "reverted",
+            "default": "reverted",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "restored_fields"
+        ],
+        "title": "BulkRevertedEvent",
         "type": "object"
       },
       "BulkSelection": {
@@ -967,6 +1214,137 @@
         "title": "BulkSelection",
         "type": "object"
       },
+      "BulkSummaryEvent": {
+        "properties": {
+          "applicable": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applicable"
+          },
+          "applied": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied"
+          },
+          "batch_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "batch_revert": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Revert"
+          },
+          "failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed"
+          },
+          "failures": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "reverted": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverted"
+          },
+          "skipped": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped"
+          },
+          "type": {
+            "const": "summary",
+            "default": "summary",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "batch_id",
+          "items",
+          "applicable",
+          "skipped",
+          "applied",
+          "failed",
+          "reverted",
+          "failures",
+          "batch_revert"
+        ],
+        "title": "BulkSummaryEvent",
+        "type": "object"
+      },
       "CandidateSummary": {
         "properties": {
           "artist": {
@@ -1030,7 +1408,12 @@
           }
         },
         "required": [
-          "name"
+          "name",
+          "mbid",
+          "artist",
+          "url",
+          "year",
+          "response_id"
         ],
         "title": "CandidateSummary",
         "type": "object"
@@ -1054,7 +1437,8 @@
           }
         },
         "required": [
-          "name"
+          "name",
+          "count"
         ],
         "title": "CandidateTagView",
         "type": "object"
@@ -1210,6 +1594,16 @@
           "entity_id",
           "identity",
           "name",
+          "mbid",
+          "artist",
+          "year",
+          "duration_ms",
+          "url",
+          "listeners",
+          "playcount",
+          "tags",
+          "last_seen_at",
+          "latest_response_id",
           "matched_on",
           "confidence"
         ],
@@ -1280,6 +1674,7 @@
           "item_id",
           "kind",
           "name",
+          "etag",
           "candidates",
           "count",
           "note"
@@ -1399,7 +1794,8 @@
         },
         "required": [
           "counts",
-          "total"
+          "total",
+          "newest_observation_at"
         ],
         "title": "DerivedCounts",
         "type": "object"
@@ -1516,6 +1912,8 @@
           "item_id",
           "kind",
           "name",
+          "etag",
+          "locked_fields",
           "confidence",
           "candidate",
           "changes",
@@ -1577,11 +1975,15 @@
         },
         "required": [
           "field",
+          "current",
+          "proposed",
           "mode",
           "reason",
           "source",
           "selected",
-          "changes_anything"
+          "changes_anything",
+          "withheld_reason",
+          "provenance"
         ],
         "title": "FieldChangeView",
         "type": "object"
@@ -1942,6 +2344,7 @@
           "hits",
           "misses",
           "decisions",
+          "hit_ratio",
           "scope",
           "note"
         ],
@@ -2064,7 +2467,8 @@
         "required": [
           "dry_run",
           "counts",
-          "duration_ms"
+          "duration_ms",
+          "changes"
         ],
         "title": "ReindexResponse",
         "type": "object"
@@ -2150,7 +2554,10 @@
         "required": [
           "id",
           "kind",
+          "name",
           "source_op",
+          "created_at",
+          "etag",
           "field_count"
         ],
         "title": "SnapshotSummary",
@@ -2575,10 +2982,44 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
-              }
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "applied": "#/components/schemas/BulkAppliedEvent",
+                      "error": "#/components/schemas/BulkErrorEvent",
+                      "failed": "#/components/schemas/BulkFailedEvent",
+                      "item": "#/components/schemas/BulkItemEvent",
+                      "reverted": "#/components/schemas/BulkRevertedEvent",
+                      "summary": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BulkItemEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkAppliedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkRevertedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkErrorEvent"
+                    }
+                  ],
+                  "title": "Response 200 Bulk Apply Api Bulk Apply Post"
+                }
+              },
+              "text/event-stream": {}
             },
-            "description": "Successful Response"
+            "description": "Server-Sent Events, one frame per item."
           },
           "422": {
             "content": {
@@ -2623,10 +3064,44 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
-              }
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "applied": "#/components/schemas/BulkAppliedEvent",
+                      "error": "#/components/schemas/BulkErrorEvent",
+                      "failed": "#/components/schemas/BulkFailedEvent",
+                      "item": "#/components/schemas/BulkItemEvent",
+                      "reverted": "#/components/schemas/BulkRevertedEvent",
+                      "summary": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BulkItemEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkAppliedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkRevertedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkErrorEvent"
+                    }
+                  ],
+                  "title": "Response 200 Bulk Diff Api Bulk Diff Post"
+                }
+              },
+              "text/event-stream": {}
             },
-            "description": "Successful Response"
+            "description": "Server-Sent Events, one frame per item."
           },
           "422": {
             "content": {
@@ -2696,10 +3171,44 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
-              }
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "applied": "#/components/schemas/BulkAppliedEvent",
+                      "error": "#/components/schemas/BulkErrorEvent",
+                      "failed": "#/components/schemas/BulkFailedEvent",
+                      "item": "#/components/schemas/BulkItemEvent",
+                      "reverted": "#/components/schemas/BulkRevertedEvent",
+                      "summary": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BulkItemEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkAppliedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkRevertedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkErrorEvent"
+                    }
+                  ],
+                  "title": "Response 200 Bulk Revert Api Bulk  Batch Id  Revert Post"
+                }
+              },
+              "text/event-stream": {}
             },
-            "description": "Successful Response"
+            "description": "Server-Sent Events, one frame per item."
           },
           "422": {
             "content": {

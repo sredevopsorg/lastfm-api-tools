@@ -15,7 +15,7 @@ with a reason each, because the operator has to decide per field.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -50,7 +50,7 @@ class ConfidenceView(BaseModel):
 class CandidateTagView(BaseModel):
     name: str
     # None where Last.fm supplied no count, which is not the same as a count of zero.
-    count: int | None = None
+    count: int | None
 
 
 class CandidateView(BaseModel):
@@ -58,17 +58,17 @@ class CandidateView(BaseModel):
     entity_id: int
     identity: str
     name: str
-    mbid: str | None = None
-    artist: str | None = None
-    year: int | None = None
-    duration_ms: int | None = None
-    url: str | None = None
-    listeners: int | None = None
-    playcount: int | None = None
-    tags: list[CandidateTagView] = Field(default_factory=list)
+    mbid: str | None
+    artist: str | None
+    year: int | None
+    duration_ms: int | None
+    url: str | None
+    listeners: int | None
+    playcount: int | None
+    tags: list[CandidateTagView]
     has_overview: bool = False
-    last_seen_at: str | None = None
-    latest_response_id: str | None = None
+    last_seen_at: str | None
+    latest_response_id: str | None
     matched_on: Literal["mbid", "name"]
     confidence: ConfidenceView
 
@@ -77,7 +77,7 @@ class CandidatesResponse(BaseModel):
     item_id: str
     kind: str
     name: str
-    etag: str | None = None
+    etag: str | None
     candidates: list[CandidateView]
     count: int
     note: str
@@ -90,8 +90,8 @@ class FieldChangeView(BaseModel):
     """One proposed change to one writable field."""
 
     field: str
-    current: Any = None
-    proposed: Any = None
+    current: Any
+    proposed: Any
     mode: str
     # Why this field is being changed, in the operator's terms.
     reason: str
@@ -100,25 +100,25 @@ class FieldChangeView(BaseModel):
     # False when the value already matches, so ticking it would be a no-op write.
     changes_anything: bool
     # Set when Jellyfin has the field locked; nothing may be written to it.
-    withheld_reason: str | None = None
-    provenance: dict[str, Any] = Field(default_factory=dict)
+    withheld_reason: str | None
+    provenance: dict[str, Any]
 
 
 class CandidateSummary(BaseModel):
     name: str
-    mbid: str | None = None
-    artist: str | None = None
-    url: str | None = None
-    year: int | None = None
-    response_id: str | None = None
+    mbid: str | None
+    artist: str | None
+    url: str | None
+    year: int | None
+    response_id: str | None
 
 
 class DiffResponse(BaseModel):
     item_id: str
     kind: str
     name: str
-    etag: str | None = None
-    locked_fields: list[str] = Field(default_factory=list)
+    etag: str | None
+    locked_fields: list[str]
     confidence: ConfidenceView
     candidate: CandidateSummary
     changes: list[FieldChangeView]
@@ -133,23 +133,23 @@ class ApplyResponse(BaseModel):
     kind: str
     applied: list[str]
     unchanged: list[str]
-    snapshot_id: int | None = None
-    etag_before: str | None = None
-    etag_after: str | None = None
+    snapshot_id: int | None
+    etag_before: str | None
+    etag_after: str | None
     duration_ms: int
     # The state re-read from Jellyfin after the write, so the response reports what the
     # server holds rather than what we sent.
-    state: dict[str, Any] | None = None
-    idempotency_key: str | None = None
+    state: dict[str, Any] | None
+    idempotency_key: str | None
 
 
 class SnapshotSummary(BaseModel):
     id: int
     kind: str
-    name: str | None = None
+    name: str | None
     source_op: str
-    created_at: str | None = None
-    etag: str | None = None
+    created_at: str | None
+    etag: str | None
     field_count: int
 
 
@@ -165,13 +165,13 @@ class SnapshotListResponse(BaseModel):
 class ArchiveTagView(BaseModel):
     name: str
     rank: int
-    count: int | None = None
+    count: int | None
 
 
 class ArchiveSimilarityView(BaseModel):
     name: str
-    mbid: str | None = None
-    match: float | None = None
+    mbid: str | None
+    match: float | None
     rank: int
 
 
@@ -184,23 +184,23 @@ class ArchiveEntityBase(BaseModel):
     identity: str
     kind: str
     name: str
-    mbid: str | None = None
-    url: str | None = None
-    listeners: int | None = None
-    playcount: int | None = None
-    overview: str | None = None
-    first_seen_at: str | None = None
-    last_seen_at: str | None = None
+    mbid: str | None
+    url: str | None
+    listeners: int | None
+    playcount: int | None
+    overview: str | None
+    first_seen_at: str | None
+    last_seen_at: str | None
     latest_response_id: str
     # Kind-specific columns, so one response model can serve all three tables without
     # pretending they share a schema.
-    extra: dict[str, Any] = Field(default_factory=dict)
+    extra: dict[str, Any]
 
 
 class ArchiveEntitySummary(ArchiveEntityBase):
     """A list row: tags are bare names, because the list has no room for counts."""
 
-    tags: list[str] = Field(default_factory=list)
+    tags: list[str]
 
 
 class ArchiveEntityDetail(ArchiveEntityBase):
@@ -212,8 +212,8 @@ class ArchiveEntityDetail(ArchiveEntityBase):
     inconvenience. Two shapes that differ this much are two models.
     """
 
-    tags: list[ArchiveTagView] = Field(default_factory=list)
-    similar: list[ArchiveSimilarityView] = Field(default_factory=list)
+    tags: list[ArchiveTagView]
+    similar: list[ArchiveSimilarityView]
 
 
 class ArchiveEntityListResponse(BaseModel):
@@ -238,9 +238,9 @@ class ArchiveAliasView(BaseModel):
     """
 
     requested: str
-    canonical_name: str | None = None
-    canonical_artist_id: int | None = None
-    kind: str | None = None
+    canonical_name: str | None
+    canonical_artist_id: int | None
+    kind: str | None
 
 
 class ArchiveAliasListResponse(BaseModel):
@@ -250,7 +250,7 @@ class ArchiveAliasListResponse(BaseModel):
 
 class ArchiveTagCountView(BaseModel):
     name: str
-    norm: str | None = None
+    norm: str | None
     # How many distinct entities carry this tag, which is what makes it a candidate for
     # a controlled genre vocabulary.
     entity_count: int
@@ -264,7 +264,7 @@ class ArchiveTagListResponse(BaseModel):
 class DerivedCounts(BaseModel):
     counts: dict[str, int]
     total: int
-    newest_observation_at: str | None = None
+    newest_observation_at: str | None
 
 
 class PartitionUsage(BaseModel):
@@ -274,14 +274,14 @@ class PartitionUsage(BaseModel):
 
 class ArchiveStatView(BaseModel):
     name: str
-    value: Any = None
+    value: Any
 
 
 class ReadMetricsView(BaseModel):
     hits: int
     misses: int
     decisions: int
-    hit_ratio: float | None = None
+    hit_ratio: float | None
     # "process" because the counters are in memory and reset on restart.
     scope: str
     note: str
@@ -297,7 +297,7 @@ class ArchiveStatsResponse(BaseModel):
     response_rows: int
     observations: int
     request_rows: int
-    oldest_request_at: str | None = None
+    oldest_request_at: str | None
     # Requests not accounted for by an observation: a healthy archive has none.
     stray_archive_reads: int
     reads: ReadMetricsView
@@ -326,7 +326,7 @@ class ReindexResponse(BaseModel):
     counts: ReindexCounts
     duration_ms: int
     # Per-table id changes, so a rebuild's effect is visible before it is accepted.
-    changes: dict[str, Any] = Field(default_factory=dict)
+    changes: dict[str, Any]
 
 
 # ------------------------------------------------------------------ library
@@ -346,7 +346,7 @@ class BulkItemEvent(BaseModel):
     item_id: str
     name: str
     kind: str
-    skipped_reason: str | None = None
+    skipped_reason: str | None
     applicable: bool
     diff: DiffResponse
 
@@ -357,16 +357,16 @@ class BulkAppliedEvent(BaseModel):
     item_id: str
     name: str
     applied_fields: list[str]
-    snapshot_id: int | None = None
+    snapshot_id: int | None
 
 
 class BulkFailedEvent(BaseModel):
     type: Literal["failed"] = "failed"
-    index: int | None = None
+    index: int | None
     item_id: str
-    name: str | None = None
+    name: str | None
     error: str
-    error_code: str | None = None
+    error_code: str | None
 
 
 class BulkRevertedEvent(BaseModel):
@@ -377,16 +377,16 @@ class BulkRevertedEvent(BaseModel):
 
 class BulkSummaryEvent(BaseModel):
     type: Literal["summary"] = "summary"
-    job_id: str | None = None
-    batch_id: str | None = None
-    items: int | None = None
-    applicable: int | None = None
-    skipped: int | None = None
-    applied: int | None = None
-    failed: int | None = None
-    reverted: int | None = None
-    failures: list[dict[str, Any]] = Field(default_factory=list)
-    batch_revert: str | None = None
+    job_id: str | None
+    batch_id: str | None
+    items: int | None
+    applicable: int | None
+    skipped: int | None
+    applied: int | None
+    failed: int | None
+    reverted: int | None
+    failures: list[dict[str, Any]]
+    batch_revert: str | None
 
 
 class BulkErrorEvent(BaseModel):
@@ -408,3 +408,20 @@ class BulkJobSummary(BaseModel):
 class BulkJobListResponse(BaseModel):
     jobs: list[BulkJobSummary]
     count: int
+
+
+# --------------------------------------------------------------- stream events
+
+# A discriminated union so one schema documents every frame a bulk stream can emit.
+# Without a type that an endpoint references, FastAPI omits these from the document
+# entirely -- the event models existed but were invisible to the SPA, which is why its
+# bulk progress handler had nothing to type against.
+BulkStreamEvent = Annotated[
+    BulkItemEvent
+    | BulkAppliedEvent
+    | BulkFailedEvent
+    | BulkRevertedEvent
+    | BulkSummaryEvent
+    | BulkErrorEvent,
+    Field(discriminator="type"),
+]

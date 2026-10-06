@@ -547,19 +547,19 @@ export interface components {
             /** Duration Ms */
             duration_ms: number;
             /** Etag After */
-            etag_after?: string | null;
+            etag_after: string | null;
             /** Etag Before */
-            etag_before?: string | null;
+            etag_before: string | null;
             /** Idempotency Key */
-            idempotency_key?: string | null;
+            idempotency_key: string | null;
             /** Item Id */
             item_id: string;
             /** Kind */
             kind: string;
             /** Snapshot Id */
-            snapshot_id?: number | null;
+            snapshot_id: number | null;
             /** State */
-            state?: {
+            state: {
                 [key: string]: unknown;
             } | null;
             /** Unchanged */
@@ -581,11 +581,11 @@ export interface components {
          */
         ArchiveAliasView: {
             /** Canonical Artist Id */
-            canonical_artist_id?: number | null;
+            canonical_artist_id: number | null;
             /** Canonical Name */
-            canonical_name?: string | null;
+            canonical_name: string | null;
             /** Kind */
-            kind?: string | null;
+            kind: string | null;
             /** Requested */
             requested: string;
         };
@@ -600,11 +600,11 @@ export interface components {
          */
         ArchiveEntityDetail: {
             /** Extra */
-            extra?: {
+            extra: {
                 [key: string]: unknown;
             };
             /** First Seen At */
-            first_seen_at?: string | null;
+            first_seen_at: string | null;
             /** Id */
             id: number;
             /** Identity */
@@ -612,25 +612,25 @@ export interface components {
             /** Kind */
             kind: string;
             /** Last Seen At */
-            last_seen_at?: string | null;
+            last_seen_at: string | null;
             /** Latest Response Id */
             latest_response_id: string;
             /** Listeners */
-            listeners?: number | null;
+            listeners: number | null;
             /** Mbid */
-            mbid?: string | null;
+            mbid: string | null;
             /** Name */
             name: string;
             /** Overview */
-            overview?: string | null;
+            overview: string | null;
             /** Playcount */
-            playcount?: number | null;
+            playcount: number | null;
             /** Similar */
-            similar?: components["schemas"]["ArchiveSimilarityView"][];
+            similar: components["schemas"]["ArchiveSimilarityView"][];
             /** Tags */
-            tags?: components["schemas"]["ArchiveTagView"][];
+            tags: components["schemas"]["ArchiveTagView"][];
             /** Url */
-            url?: string | null;
+            url: string | null;
         };
         /**
          * ArchiveEntityListResponse
@@ -656,11 +656,11 @@ export interface components {
          */
         ArchiveEntitySummary: {
             /** Extra */
-            extra?: {
+            extra: {
                 [key: string]: unknown;
             };
             /** First Seen At */
-            first_seen_at?: string | null;
+            first_seen_at: string | null;
             /** Id */
             id: number;
             /** Identity */
@@ -668,23 +668,23 @@ export interface components {
             /** Kind */
             kind: string;
             /** Last Seen At */
-            last_seen_at?: string | null;
+            last_seen_at: string | null;
             /** Latest Response Id */
             latest_response_id: string;
             /** Listeners */
-            listeners?: number | null;
+            listeners: number | null;
             /** Mbid */
-            mbid?: string | null;
+            mbid: string | null;
             /** Name */
             name: string;
             /** Overview */
-            overview?: string | null;
+            overview: string | null;
             /** Playcount */
-            playcount?: number | null;
+            playcount: number | null;
             /** Tags */
-            tags?: string[];
+            tags: string[];
             /** Url */
-            url?: string | null;
+            url: string | null;
         };
         /** ArchiveInfo */
         ArchiveInfo: {
@@ -698,9 +698,9 @@ export interface components {
         /** ArchiveSimilarityView */
         ArchiveSimilarityView: {
             /** Match */
-            match?: number | null;
+            match: number | null;
             /** Mbid */
-            mbid?: string | null;
+            mbid: string | null;
             /** Name */
             name: string;
             /** Rank */
@@ -716,7 +716,7 @@ export interface components {
             /** Observations */
             observations: number;
             /** Oldest Request At */
-            oldest_request_at?: string | null;
+            oldest_request_at: string | null;
             /** Partitions */
             partitions: components["schemas"]["PartitionUsage"][];
             /** Payload Bytes */
@@ -745,7 +745,7 @@ export interface components {
             /** Name */
             name: string;
             /** Norm */
-            norm?: string | null;
+            norm: string | null;
         };
         /** ArchiveTagListResponse */
         ArchiveTagListResponse: {
@@ -757,11 +757,29 @@ export interface components {
         /** ArchiveTagView */
         ArchiveTagView: {
             /** Count */
-            count?: number | null;
+            count: number | null;
             /** Name */
             name: string;
             /** Rank */
             rank: number;
+        };
+        /** BulkAppliedEvent */
+        BulkAppliedEvent: {
+            /** Applied Fields */
+            applied_fields: string[];
+            /** Index */
+            index: number;
+            /** Item Id */
+            item_id: string;
+            /** Name */
+            name: string;
+            /** Snapshot Id */
+            snapshot_id: number | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "applied";
         };
         /** BulkApplyRequest */
         BulkApplyRequest: {
@@ -802,6 +820,57 @@ export interface components {
             selection: components["schemas"]["BulkSelection"];
             tag_policy?: components["schemas"]["TagPolicyRequest"] | null;
         };
+        /** BulkErrorEvent */
+        BulkErrorEvent: {
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "error";
+        };
+        /** BulkFailedEvent */
+        BulkFailedEvent: {
+            /** Error */
+            error: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Index */
+            index: number | null;
+            /** Item Id */
+            item_id: string;
+            /** Name */
+            name: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "failed";
+        };
+        /** BulkItemEvent */
+        BulkItemEvent: {
+            /** Applicable */
+            applicable: boolean;
+            diff: components["schemas"]["DiffResponse"];
+            /** Index */
+            index: number;
+            /** Item Id */
+            item_id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Skipped Reason */
+            skipped_reason: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "item";
+        };
         /** BulkJobListResponse */
         BulkJobListResponse: {
             /** Count */
@@ -825,6 +894,18 @@ export interface components {
             job_id: string;
             /** Skipped */
             skipped: number;
+        };
+        /** BulkRevertedEvent */
+        BulkRevertedEvent: {
+            /** Item Id */
+            item_id: string;
+            /** Restored Fields */
+            restored_fields: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "reverted";
         };
         /**
          * BulkSelection
@@ -858,35 +939,65 @@ export interface components {
             /** Search */
             search?: string | null;
         };
+        /** BulkSummaryEvent */
+        BulkSummaryEvent: {
+            /** Applicable */
+            applicable: number | null;
+            /** Applied */
+            applied: number | null;
+            /** Batch Id */
+            batch_id: string | null;
+            /** Batch Revert */
+            batch_revert: string | null;
+            /** Failed */
+            failed: number | null;
+            /** Failures */
+            failures: {
+                [key: string]: unknown;
+            }[];
+            /** Items */
+            items: number | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Reverted */
+            reverted: number | null;
+            /** Skipped */
+            skipped: number | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "summary";
+        };
         /** CandidateSummary */
         CandidateSummary: {
             /** Artist */
-            artist?: string | null;
+            artist: string | null;
             /** Mbid */
-            mbid?: string | null;
+            mbid: string | null;
             /** Name */
             name: string;
             /** Response Id */
-            response_id?: string | null;
+            response_id: string | null;
             /** Url */
-            url?: string | null;
+            url: string | null;
             /** Year */
-            year?: number | null;
+            year: number | null;
         };
         /** CandidateTagView */
         CandidateTagView: {
             /** Count */
-            count?: number | null;
+            count: number | null;
             /** Name */
             name: string;
         };
         /** CandidateView */
         CandidateView: {
             /** Artist */
-            artist?: string | null;
+            artist: string | null;
             confidence: components["schemas"]["ConfidenceView"];
             /** Duration Ms */
-            duration_ms?: number | null;
+            duration_ms: number | null;
             /** Entity Id */
             entity_id: number;
             /**
@@ -902,28 +1013,28 @@ export interface components {
             /** Identity */
             identity: string;
             /** Last Seen At */
-            last_seen_at?: string | null;
+            last_seen_at: string | null;
             /** Latest Response Id */
-            latest_response_id?: string | null;
+            latest_response_id: string | null;
             /** Listeners */
-            listeners?: number | null;
+            listeners: number | null;
             /**
              * Matched On
              * @enum {string}
              */
             matched_on: "mbid" | "name";
             /** Mbid */
-            mbid?: string | null;
+            mbid: string | null;
             /** Name */
             name: string;
             /** Playcount */
-            playcount?: number | null;
+            playcount: number | null;
             /** Tags */
-            tags?: components["schemas"]["CandidateTagView"][];
+            tags: components["schemas"]["CandidateTagView"][];
             /** Url */
-            url?: string | null;
+            url: string | null;
             /** Year */
-            year?: number | null;
+            year: number | null;
         };
         /** CandidatesRequest */
         CandidatesRequest: {
@@ -946,7 +1057,7 @@ export interface components {
             /** Count */
             count: number;
             /** Etag */
-            etag?: string | null;
+            etag: string | null;
             /** Item Id */
             item_id: string;
             /** Kind */
@@ -995,7 +1106,7 @@ export interface components {
                 [key: string]: number;
             };
             /** Newest Observation At */
-            newest_observation_at?: string | null;
+            newest_observation_at: string | null;
             /** Total */
             total: number;
         };
@@ -1024,13 +1135,13 @@ export interface components {
             /** Default Selection */
             default_selection: string[];
             /** Etag */
-            etag?: string | null;
+            etag: string | null;
             /** Item Id */
             item_id: string;
             /** Kind */
             kind: string;
             /** Locked Fields */
-            locked_fields?: string[];
+            locked_fields: string[];
             /** Name */
             name: string;
             /** Withheld */
@@ -1044,15 +1155,15 @@ export interface components {
             /** Changes Anything */
             changes_anything: boolean;
             /** Current */
-            current?: unknown;
+            current: unknown;
             /** Field */
             field: string;
             /** Mode */
             mode: string;
             /** Proposed */
-            proposed?: unknown;
+            proposed: unknown;
             /** Provenance */
-            provenance?: {
+            provenance: {
                 [key: string]: unknown;
             };
             /** Reason */
@@ -1062,7 +1173,7 @@ export interface components {
             /** Source */
             source: string;
             /** Withheld Reason */
-            withheld_reason?: string | null;
+            withheld_reason: string | null;
         };
         /**
          * FieldPolicyOverride
@@ -1185,7 +1296,7 @@ export interface components {
             /** Decisions */
             decisions: number;
             /** Hit Ratio */
-            hit_ratio?: number | null;
+            hit_ratio: number | null;
             /** Hits */
             hits: number;
             /** Misses */
@@ -1234,7 +1345,7 @@ export interface components {
         /** ReindexResponse */
         ReindexResponse: {
             /** Changes */
-            changes?: {
+            changes: {
                 [key: string]: unknown;
             };
             counts: components["schemas"]["ReindexCounts"];
@@ -1255,9 +1366,9 @@ export interface components {
         /** SnapshotSummary */
         SnapshotSummary: {
             /** Created At */
-            created_at?: string | null;
+            created_at: string | null;
             /** Etag */
-            etag?: string | null;
+            etag: string | null;
             /** Field Count */
             field_count: number;
             /** Id */
@@ -1265,7 +1376,7 @@ export interface components {
             /** Kind */
             kind: string;
             /** Name */
-            name?: string | null;
+            name: string | null;
             /** Source Op */
             source_op: string;
         };
@@ -1518,13 +1629,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description Server-Sent Events, one frame per item. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BulkItemEvent"] | components["schemas"]["BulkAppliedEvent"] | components["schemas"]["BulkFailedEvent"] | components["schemas"]["BulkRevertedEvent"] | components["schemas"]["BulkSummaryEvent"] | components["schemas"]["BulkErrorEvent"];
+                    "text/event-stream": unknown;
                 };
             };
             /** @description Validation Error */
@@ -1551,13 +1663,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description Server-Sent Events, one frame per item. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BulkItemEvent"] | components["schemas"]["BulkAppliedEvent"] | components["schemas"]["BulkFailedEvent"] | components["schemas"]["BulkRevertedEvent"] | components["schemas"]["BulkSummaryEvent"] | components["schemas"]["BulkErrorEvent"];
+                    "text/event-stream": unknown;
                 };
             };
             /** @description Validation Error */
@@ -1604,13 +1717,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Server-Sent Events, one frame per item. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["BulkItemEvent"] | components["schemas"]["BulkAppliedEvent"] | components["schemas"]["BulkFailedEvent"] | components["schemas"]["BulkRevertedEvent"] | components["schemas"]["BulkSummaryEvent"] | components["schemas"]["BulkErrorEvent"];
+                    "text/event-stream": unknown;
                 };
             };
             /** @description Validation Error */

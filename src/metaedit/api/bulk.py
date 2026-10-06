@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.api.deps import JellyfinDep
 from metaedit.api.items import FieldPolicyOverride, TagPolicyRequest, tag_policy_from
-from metaedit.api.schemas import BulkJobListResponse
+from metaedit.api.schemas import BulkJobListResponse, BulkStreamEvent
 from metaedit.db.session import get_session
 from metaedit.domain.errors import NotFoundError, ValidationError
 from metaedit.service import bulk
@@ -97,7 +97,16 @@ async def _stream(events: AsyncIterator[dict[str, Any]]) -> AsyncIterator[str]:
     yield _sse({"type": "done"})
 
 
-@router.post("/diff")
+@router.post(
+    "/diff",
+    responses={
+        200: {
+            "model": BulkStreamEvent,
+            "description": "Server-Sent Events, one frame per item.",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
 async def bulk_diff(
     client: JellyfinDep,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -128,7 +137,16 @@ async def bulk_diff(
     )
 
 
-@router.post("/apply")
+@router.post(
+    "/apply",
+    responses={
+        200: {
+            "model": BulkStreamEvent,
+            "description": "Server-Sent Events, one frame per item.",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
 async def bulk_apply(
     client: JellyfinDep,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -158,7 +176,16 @@ async def bulk_apply(
     )
 
 
-@router.post("/{batch_id}/revert")
+@router.post(
+    "/{batch_id}/revert",
+    responses={
+        200: {
+            "model": BulkStreamEvent,
+            "description": "Server-Sent Events, one frame per item.",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
 async def bulk_revert(
     batch_id: str,
     client: JellyfinDep,

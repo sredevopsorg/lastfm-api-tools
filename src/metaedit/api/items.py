@@ -176,9 +176,8 @@ async def item_apply(
         expected_etag=body.expected_etag,
         user_id=None,
     )
-    payload = outcome.as_dict()
-    payload["idempotency_key"] = idempotency_key
-    return payload
+    outcome.idempotency_key = idempotency_key
+    return outcome.as_dict()
 
 
 @router.get("/items/{item_id}/snapshots", response_model=SnapshotListResponse)

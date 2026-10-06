@@ -57,6 +57,9 @@ class ApplyOutcome:
     # assumed from the payload we sent.
     state: dict[str, Any] | None = None
     duration_ms: int = 0
+    # Present on every outcome, null where the caller supplied none. A field that is
+    # sometimes absent forces consumers to handle two shapes for one concept.
+    idempotency_key: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +72,7 @@ class ApplyOutcome:
             "etag_after": self.etag_after,
             "duration_ms": self.duration_ms,
             "state": self.state,
+            "idempotency_key": self.idempotency_key,
         }
 
 

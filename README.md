@@ -13,7 +13,25 @@ field-level diff, and apply the accepted changes back to Jellyfin.
 
 ## Status
 
-Under construction, phase by phase. Phases 0–6 are implemented and verified. The UI remains.
+Under construction, phase by phase. Phases 0–7 are implemented and verified. Hardening and end-to-end tests remain.
+
+### The UI
+
+React + Vite single-page app, served by the same container as the API. Four screens:
+
+| Screen | What it does |
+| --- | --- |
+| **Library** | Browse artists, albums or songs; filter to items missing metadata; open the editor. |
+| **Editor** | Pick an archived candidate, review the diff field by field, write only what you tick, undo from the snapshot history. |
+| **Bulk** | Review a selection, apply the reviewed job, watch per-item progress, revert the batch as a unit. |
+| **Archive** | Storage-cap headroom, the derived layer's counts, stored entities with tags by popularity and similar artists. |
+
+The SPA's types are **generated** from the backend's OpenAPI document rather than
+hand-written, and a CI step fails if a schema change was not regenerated. Query
+parameters are typed too, which is not decoration: the library page once sent `limit`
+to an endpoint that takes `page_size`, so every page silently came back at the default
+size. With the parameter types derived from the same document, that is now a compile
+error with an actionable message.
 
 | Area | State |
 |---|---|
@@ -28,7 +46,8 @@ Under construction, phase by phase. Phases 0–6 are implemented and verified. T
 | Tag policy, mapping, confidence, diff | **done** |
 | Apply, snapshot, undo | **done** |
 | Bulk editing (SSE) | **done** |
-| Library browser, editor, archive explorer UI | **next** (phase 7) |
+| Library browser, editor, bulk and archive-explorer UI | **done** |
+| Hardening, end-to-end tests | **next** (phase 8) |
 
 `metaedit reindex` derives the structured layer from the raw archive: entity rows
 for artists, albums and tracks, tag edges with real popularity counts, similar
