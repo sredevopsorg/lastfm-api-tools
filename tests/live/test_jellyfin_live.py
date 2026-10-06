@@ -17,22 +17,22 @@ answer:
 
 Run with::
 
-    JELLYFIN_URL=... JELLYFIN_API_KEY=... uv run pytest -m live_jellyfin -v -s
+    uv run pytest -m live_jellyfin -v -s     # uses JELLYFIN_* from .env
 """
 
 from __future__ import annotations
-
-import os
 
 import httpx
 import pytest
 
 from metaedit.adapters.jellyfin.client import ITEM_FIELDS, JellyfinClient
 from metaedit.config import Settings
+from metaedit.config import get_settings as _get_settings
 from metaedit.domain.writable import payload_fields
 
-JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "")
-JELLYFIN_KEY = os.environ.get("JELLYFIN_API_KEY", "")
+_settings_at_import = _get_settings()
+JELLYFIN_URL = _settings_at_import.jellyfin_url
+JELLYFIN_KEY = _settings_at_import.jellyfin_key()
 
 pytestmark = [
     pytest.mark.live_jellyfin,

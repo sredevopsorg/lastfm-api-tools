@@ -10,12 +10,11 @@ been checked against a real response -- the risk being that a mismatch surfaces 
 
 Run with::
 
-    LASTFM_API_KEY=... uv run pytest -m live_lastfm -v -s
+    uv run pytest -m live_lastfm -v -s      # uses LASTFM_API_KEY from .env
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator
 
 import pytest
@@ -27,11 +26,12 @@ from metaedit.adapters.lastfm.client import LastfmClient, reset_shared_buckets
 from metaedit.archive.reindex import reindex
 from metaedit.archive.store import ArchiveStore
 from metaedit.config import Settings
+from metaedit.config import get_settings as _get_settings
 
 pytestmark = [pytest.mark.live_lastfm, requires_postgres]
 
-API_KEY = os.environ.get("LASTFM_API_KEY", "")
-requires_key = pytest.mark.skipif(not API_KEY, reason="LASTFM_API_KEY is not set")
+API_KEY = _get_settings().lastfm_key()
+requires_key = pytest.mark.skipif(not API_KEY, reason="LASTFM_API_KEY is not configured")
 
 # A stable, well-known subject so the assertions are not at the mercy of an obscure
 # artist's data being absent from Last.fm.
@@ -133,10 +133,17 @@ async def test_album_getinfo_parses(session_factory, client_settings) -> None:  
 
     assert "album" in result.body
     assert album.name
+
+    # The adapter model carries the raw `releasedate`; the year is parsed by the
+    # derivation, so that is where the format assumption is checked.
+    from metaedit.archive.derive import _parse_releasedate
+
+    year = _parse_releasedate(album.releasedate)
     print(f"\nalbum.getinfo -> name={album.name!r} releasedate={album.releasedate!r}")
-    print(f"  parsed year: {album.production_year}, tracks: {len(album.tracks)}")
+    print(f"  parsed year: {year}, tracks: {len(album.tracks)}")
+    print(f"  parsed tag count: {len(album.toptags)}")
     if album.releasedate:
-        assert album.production_year is not None, (
+        assert year is not None, (
             f"releasedate {album.releasedate!r} did not yield a year; the format "
             "differs from the documented '6 Apr 1999, 00:00'"
         )
@@ -266,21 +273,27 @@ async def test_second_identical_call_is_served_from_the_archive(
     session_factory, client_settings
 ) -> None:  # type: ignore[no-untyped-def]
     """The archive must save a real API call, not just appear to."""
+    from metaedit.archive.stats import read_metrics
+
     settings = client_settings.model_copy(update={"archive_freshness_ttl_s": 3600})
     async with session_factory() as session:
         store = ArchiveStore(session, settings)
+        before = read_metrics()
+        hits_before, misses_before = before.hits, before.misses
         async with LastfmClient(settings, store=store) as client:
             first_artist, first = await client.artist_info(artist=ARTIST)
             second_artist, second = await client.artist_info(artist=ARTIST)
         await session.commit()
 
-    from metaedit.archive.stats import read_metrics
-
     assert first.served_from_archive is False, "the first call must hit the network"
     assert second.served_from_archive is True, "the second must be served locally"
     assert first_artist.name == second_artist.name
-    counts = read_metrics()
-    assert counts.hits == 1 and counts.misses == 1
+
+    # The counters are process-wide, so this must be a delta: other tests in the
+    # same session have already recorded their own reads.
+    after = read_metrics()
+    assert after.misses - misses_before == 1, "exactly one network call"
+    assert after.hits - hits_before == 1, "exactly one archive hit"
 
 
 @requires_key

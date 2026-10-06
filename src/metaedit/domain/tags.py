@@ -199,21 +199,14 @@ class TagPolicy:
             return counted
         return uncounted
 
-    def apply(
-        self,
-        tags: list[TagInput],
-        *,
-        existing_genres: list[str] | None = None,
-        existing_tags: list[str] | None = None,
-    ) -> TagOutcome:
-        """Produce the genre and tag lists for one item.
+    def classify(self, tags: list[TagInput]) -> TagOutcome:
+        """Filter, rank and split tags into genres and styles. No merging.
 
-        The limits bound how many *Last.fm* tags are promoted, not the final list
-        length: in ``merge`` mode the existing values are unioned on top, so an item
-        that already had six curated genres can end up with more than ``genre_limit``.
-        That is deliberate -- a limit must never silently drop a curated genre -- but
-        it does mean the result can exceed the limit, so callers that need a hard cap
-        should use ``max_tags_per_item`` / ``replace`` mode.
+        Merging is deliberately *not* done here. Each field has its own mode
+        (``Genres`` might replace while ``Tags`` merges), so merging is a field-level
+        decision and belongs to the caller. Doing it here made a field-level
+        ``replace`` override silently ineffective, because the merge had already
+        happened using the classifier's own mode.
         """
         accepted: list[str] = []
         dropped: list[DroppedTag] = []
@@ -225,8 +218,6 @@ class TagPolicy:
                 if not norm:
                     continue
                 if norm in seen:
-                    # Case and separator variants of the same tag collapse to one,
-                    # which is also what lastfm_tag_edge's unique key requires.
                     dropped.append(DroppedTag(name=piece, reason="duplicate"))
                     continue
                 reason = self.rejection_reason(piece)
@@ -246,19 +237,42 @@ class TagPolicy:
         styles = remainder[: self.style_limit]
         overflow = remainder[self.style_limit :]
 
-        if self.mode == "merge":
-            genres = _merge(genres, existing_genres or [], self)
-            styles = _merge(styles, existing_tags or [], self)
-
-        # The overall cap applies to what we would write, not to what we read.
         styles = styles[: max(self.max_tags_per_item - len(genres), 0)]
         genres = genres[: self.max_tags_per_item]
+        return TagOutcome(genres=genres, tags=styles, dropped=dropped, overflow=overflow)
 
+    def merge_into(self, proposed: list[str], existing: list[str] | None) -> list[str]:
+        """Union proposed onto existing, existing first, case-insensitively."""
+        return _merge(proposed, existing or [], self)
+
+    def apply(
+        self,
+        tags: list[TagInput],
+        *,
+        existing_genres: list[str] | None = None,
+        existing_tags: list[str] | None = None,
+    ) -> TagOutcome:
+        """Classify and merge in one step, for callers with a single mode.
+
+        The limits bound how many *Last.fm* tags are promoted, not the final list
+        length: in ``merge`` mode existing values are unioned on top, so an item that
+        already had six curated genres can end up with more than ``genre_limit``.
+        That is deliberate -- a limit must never silently drop a curated genre -- so
+        callers needing a hard cap should use ``max_tags_per_item`` or ``replace``.
+        """
+        outcome = self.classify(tags)
+        genres = outcome.genres
+        styles = outcome.tags
+        if self.mode == "merge":
+            genres = self.merge_into(genres, existing_genres)
+            styles = self.merge_into(styles, existing_tags)
+        styles = styles[: max(self.max_tags_per_item - len(genres), 0)]
+        genres = genres[: self.max_tags_per_item]
         return TagOutcome(
             genres=genres,
             tags=styles,
-            dropped=dropped,
-            overflow=overflow[: self.max_tags_per_item],
+            dropped=outcome.dropped,
+            overflow=outcome.overflow,
         )
 
 
