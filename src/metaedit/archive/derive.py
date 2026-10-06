@@ -532,12 +532,99 @@ def _tracklist(value: Any) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 
+def derive_top_tag_counts(
+    observations: Sequence[RawObservation],
+    *,
+    owners: Mapping[int, str] | None = None,
+) -> dict[str, dict[str, int]]:
+    """Popularity counts from ``artist.getTopTags``, keyed by normalised artist name.
+
+    This exists because ``artist.getTopTags`` is the *only* source of real tag
+    popularity, and it is envelope-free: its response is ``{"toptags": ...}`` with no
+    ``{"artist": ...}`` wrapper, so the entity derivation skips it entirely. Without
+    this reader every ``lastfm_tag_edge.count`` was null, which silently disabled
+    ``TagPolicy.min_count`` and reduced genre ranking to list order everywhere.
+
+    The artist is attributed from the container's ``@attr.artist``, which for this
+    method is the *correct* key rather than a fallback: ``autocorrect=1`` means the
+    params hold the name that was asked for while the attribute holds the canonical one
+    that was actually served, and it is the canonical name the entity is keyed by. The
+    params remain an accepted override for callers that know better.
+
+    Note this is the opposite conclusion from ``artist.getsimilar``
+    (docs/design/0003 §6), where the params win. That method's problem was ambiguity --
+    the owner and the peer list both flatten onto the key ``"artist"`` -- whereas here
+    the attribute is nested unambiguously inside its own container, so the more precise
+    value can be used directly.
+
+    Observations are sorted by ``(requested_at, request_id)`` before folding, so a
+    later fetch supersedes an earlier one and the result does not depend on the order
+    the caller happened to supply.
+    """
+    counts: dict[str, dict[str, int]] = {}
+    for observation in sorted(observations, key=lambda item: (item.requested_at, item.request_id)):
+        if observation.method != "artist.gettoptags":
+            continue
+        container = observation.body.get("toptags")
+        if not isinstance(container, dict):
+            continue
+
+        owner: str | None = None
+        if owners:
+            owner = owners.get(observation.request_id)
+        if not owner:
+            attr = container.get("@attr")
+            if isinstance(attr, dict) and isinstance(attr.get("artist"), str):
+                owner = attr["artist"]
+        owner_norm = normalize_name(owner)
+        if not owner_norm:
+            continue
+
+        bucket = counts.setdefault(owner_norm, {})
+        for tag in _tag_entries(container.get("tag")):
+            norm = normalize_tag(tag.get("name"))
+            value = tag.get("count")
+            if norm and isinstance(value, int):
+                bucket[norm] = value
+    return counts
+
+
+def apply_top_tag_counts(entity: DerivedEntity, counts: Mapping[str, int]) -> None:
+    """Fold popularity counts into an artist entity's own tag list, in place.
+
+    Applying them to the entity rather than only to the tag edges matters: the
+    candidate the mapping layer builds reads ``entity.tags``, so counts that lived only
+    in ``lastfm_tag_edge`` never reached the tag policy and ``min_count`` still filtered
+    nothing. The entity is the thing every consumer actually reads.
+
+    Counts are merged into the entity's existing tags rather than replacing them, since
+    the two responses are different views of the same artist. The one exception is an
+    entity whose envelope carried no tags at all: there the TopTags list is adopted, so
+    an artist we hold popularity data for does not appear tagless.
+    """
+    if not counts:
+        return
+    if not entity.tags:
+        entity.tags = [
+            {"name": name, "count": count}
+            for name, count in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+        ]
+        return
+    for tag in entity.tags:
+        if isinstance(tag.get("count"), int):
+            continue
+        norm = normalize_tag(tag.get("name"))
+        if norm and norm in counts:
+            tag["count"] = counts[norm]
+
+
 def derive_tag_edges(kind: EntityKind, entities: Sequence[DerivedEntity]) -> list[DerivedTagEdge]:
     """One row per (entity, tag), replacing the previous set for that entity.
 
-    ``rank`` is the source position and ``count`` is preserved only where Last.fm
-    provided it, so the tag policy in phase 4 can rank by real popularity where it
-    exists and fall back to list order where it does not.
+    ``rank`` is the source position and ``count`` is whatever the entity carries, so the
+    tag policy in phase 4 can rank by real popularity where it is known and fall back to
+    list order where it is not. Only artists have a popularity source at all: album and
+    track tag lists carry no counts anywhere in the API (live-verified).
     """
     edges: list[DerivedTagEdge] = []
     for entity in entities:
@@ -705,6 +792,11 @@ def derive_all(
     albums = _derive_entities("album", observations)
     tracks = _derive_entities("track", observations)
 
+    # Only artists have a popularity source; album and track tag lists carry no counts
+    # at all (live-verified), so their ranks stay list order.
+    top_tag_counts = derive_top_tag_counts(observations)
+    for artist in artists:
+        apply_top_tag_counts(artist, top_tag_counts.get(artist.name_norm, {}))
     tag_edges = [
         *derive_tag_edges("artist", artists),
         *derive_tag_edges("album", albums),

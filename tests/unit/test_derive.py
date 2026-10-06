@@ -598,3 +598,267 @@ def test_repeated_identical_unusable_bodies_count_once() -> None:
         for offset in range(5)
     ]
     assert derive_all(observations).skipped_unrecognised_shape == 1
+
+
+# ---------------------------------------------------- tag popularity (getTopTags)
+
+ARTIST_BODY = {
+    "artist": {
+        "name": "Radiohead",
+        "mbid": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+        # No counts: artist.getinfo genuinely omits them.
+        "tags": {"tag": [{"name": "rock"}, {"name": "alternative"}]},
+    }
+}
+
+TOPTAGS_BODY = {
+    "toptags": {
+        "@attr": {"artist": "Radiohead"},
+        "tag": [
+            {"name": "rock", "count": 100},
+            {"name": "alternative", "count": 54},
+        ],
+    }
+}
+
+
+def test_toptags_counts_reach_the_derived_edges() -> None:
+    """The regression this exists for.
+
+    ``artist.getTopTags`` is envelope-free, so the entity derivation skips it and every
+    ``count`` used to come out null -- which silently disabled ``TagPolicy.min_count``
+    and reduced genre ranking to list order everywhere.
+    """
+    result = derive_all(
+        [
+            obs(ARTIST_BODY, request_id=1),
+            obs(TOPTAGS_BODY, request_id=2, method="artist.gettoptags"),
+        ]
+    )
+    counts = {edge.tag_name_norm: edge.count for edge in result.tag_edges}
+    assert counts == {"rock": 100, "alternative": 54}
+
+
+def test_without_a_toptags_observation_counts_stay_null() -> None:
+    """Absent data is absent, not zero: a missing count must not filter anything out."""
+    result = derive_all([obs(ARTIST_BODY)])
+    assert result.tag_edges
+    assert all(edge.count is None for edge in result.tag_edges)
+
+
+def test_an_entity_with_no_tags_adopts_the_toptags_list() -> None:
+    """An artist we hold popularity data for should not appear tagless."""
+    bare = {"artist": {"name": "Radiohead", "mbid": "mbid-1"}}
+    result = derive_all(
+        [
+            obs(bare, request_id=1),
+            obs(TOPTAGS_BODY, request_id=2, method="artist.gettoptags"),
+        ]
+    )
+    assert {edge.tag_name_norm for edge in result.tag_edges} == {"rock", "alternative"}
+    assert {edge.count for edge in result.tag_edges} == {100, 54}
+
+
+def test_toptags_does_not_replace_the_entity_tag_list() -> None:
+    """Counts are merged into the entity's own tags, not substituted for them.
+
+    The two responses are different views of the same artist, and the envelope is the
+    canonical tag set, so a tag only TopTags knows about must not silently appear
+    alongside one the envelope does carry.
+    """
+    entity = {
+        "artist": {
+            "name": "Radiohead",
+            "mbid": "mbid-1",
+            "tags": {"tag": [{"name": "rock"}]},
+        }
+    }
+    top = {
+        "toptags": {
+            "@attr": {"artist": "Radiohead"},
+            "tag": [{"name": "rock", "count": 100}, {"name": "unrelated", "count": 9}],
+        }
+    }
+    result = derive_all(
+        [obs(entity, request_id=1), obs(top, request_id=2, method="artist.gettoptags")]
+    )
+    assert {edge.tag_name_norm for edge in result.tag_edges} == {"rock"}
+    assert result.tag_edges[0].count == 100
+
+
+def test_a_later_toptags_fetch_supersedes_an_earlier_one() -> None:
+    """Deterministic, and the freshest numbers win."""
+    stale = {"toptags": {"@attr": {"artist": "Radiohead"}, "tag": [{"name": "rock", "count": 10}]}}
+    fresh = {"toptags": {"@attr": {"artist": "Radiohead"}, "tag": [{"name": "rock", "count": 100}]}}
+    result = derive_all(
+        [
+            obs(ARTIST_BODY, request_id=1),
+            obs(stale, request_id=2, minutes=1, method="artist.gettoptags"),
+            obs(fresh, request_id=3, minutes=2, method="artist.gettoptags"),
+        ]
+    )
+    rock = next(edge for edge in result.tag_edges if edge.tag_name_norm == "rock")
+    assert rock.count == 100
+    # `alternative` is in the envelope but ranked by neither TopTags response, so it
+    # has no popularity of its own -- absent, not zero.
+    alternative = next(e for e in result.tag_edges if e.tag_name_norm == "alternative")
+    assert alternative.count is None
+
+
+def test_toptags_ordering_does_not_depend_on_input_order() -> None:
+    """The derived layer must be reproducible whatever order observations arrive in."""
+    first = obs(ARTIST_BODY, request_id=1)
+    stale = obs(
+        {"toptags": {"@attr": {"artist": "Radiohead"}, "tag": [{"name": "rock", "count": 10}]}},
+        request_id=2,
+        minutes=1,
+        method="artist.gettoptags",
+    )
+    fresh = obs(
+        {"toptags": {"@attr": {"artist": "Radiohead"}, "tag": [{"name": "rock", "count": 100}]}},
+        request_id=3,
+        minutes=2,
+        method="artist.gettoptags",
+    )
+    forward = derive_all([first, stale, fresh])
+    backward = derive_all([fresh, stale, first])
+    assert [(e.tag_name_norm, e.count) for e in forward.tag_edges] == [
+        (e.tag_name_norm, e.count) for e in backward.tag_edges
+    ]
+
+
+def test_a_name_only_toptags_response_still_attributes() -> None:
+    """The container attribute is the key, since autocorrect means the params can name
+    the request while the attribute names what was actually served."""
+    body = {
+        "toptags": {"tag": [{"name": "rock", "count": 7}]},
+    }
+    # No @attr at all, so there is no owner to attribute to.
+    result = derive_all(
+        [obs(ARTIST_BODY, request_id=1), obs(body, request_id=2, method="artist.gettoptags")]
+    )
+    assert all(edge.count is None for edge in result.tag_edges)
+
+
+def test_a_numeric_string_count_is_coerced() -> None:
+    """Last.fm's XML-derived responses send counts as strings, so tolerance is required.
+
+    The JSON format sends integers, but the same API serves both, and refusing a
+    string would silently reduce those responses to "no popularity data".
+    """
+    body = {
+        "toptags": {
+            "@attr": {"artist": "Radiohead"},
+            "tag": [{"name": "rock", "count": "100"}],
+        }
+    }
+    result = derive_all(
+        [obs(ARTIST_BODY, request_id=1), obs(body, request_id=2, method="artist.gettoptags")]
+    )
+    rock = next(edge for edge in result.tag_edges if edge.tag_name_norm == "rock")
+    assert rock.count == 100
+
+
+def test_an_unparseable_count_becomes_absent_not_zero() -> None:
+    """A count that cannot be read is unknown, and unknown must not filter anything."""
+    body = {
+        "toptags": {
+            "@attr": {"artist": "Radiohead"},
+            "tag": [{"name": "rock", "count": "1,000"}],
+        }
+    }
+    result = derive_all(
+        [obs(ARTIST_BODY, request_id=1), obs(body, request_id=2, method="artist.gettoptags")]
+    )
+    rock = next(edge for edge in result.tag_edges if edge.tag_name_norm == "rock")
+    assert rock.count is None
+
+
+def test_album_and_track_edges_never_gain_counts() -> None:
+    """Only artists have a popularity source, so nothing is fabricated for the others."""
+    album = {
+        "album": {
+            "name": "OK Computer",
+            "artist": "Radiohead",
+            "tags": {"tag": [{"name": "alternative"}]},
+        }
+    }
+    result = derive_all(
+        [
+            obs(album, request_id=1, method="album.getinfo"),
+            obs(TOPTAGS_BODY, request_id=2, method="artist.gettoptags"),
+        ]
+    )
+    assert result.tag_edges
+    assert all(edge.count is None for edge in result.tag_edges)
+
+
+def test_counts_reach_the_entity_not_only_the_edges() -> None:
+    """The half-fix this test exists to prevent.
+
+    Applying counts only to ``lastfm_tag_edge`` looked correct -- the counts were in the
+    database -- but the candidate the mapping layer builds reads ``entity.tags``, so
+    ``TagPolicy.min_count`` still filtered nothing and genre ranking was still list
+    order. The entity is the thing every consumer actually reads.
+    """
+    result = derive_all(
+        [
+            obs(ARTIST_BODY, request_id=1),
+            obs(TOPTAGS_BODY, request_id=2, method="artist.gettoptags"),
+        ]
+    )
+    artist = next(entity for entity in result.artists)
+    counts = {tag["name"]: tag["count"] for tag in artist.tags}
+    assert counts == {"rock": 100, "alternative": 54}
+
+
+def test_entity_counts_and_edge_counts_agree() -> None:
+    """Two copies of the same number must not be able to disagree."""
+    result = derive_all(
+        [
+            obs(ARTIST_BODY, request_id=1),
+            obs(TOPTAGS_BODY, request_id=2, method="artist.gettoptags"),
+        ]
+    )
+    artist = next(entity for entity in result.artists)
+    from_entity = {tag["name"]: tag["count"] for tag in artist.tags}
+    from_edges = {edge.tag_name: edge.count for edge in result.tag_edges}
+    assert from_entity == from_edges
+
+
+def test_an_existing_count_is_not_overwritten() -> None:
+    """The envelope's own count wins where it has one, so a re-derive is stable."""
+    from metaedit.archive.derive import DerivedEntity, apply_top_tag_counts
+
+    entity = DerivedEntity(
+        identity="artist:x",
+        kind="artist",
+        name="X",
+        name_norm="x",
+        tags=[{"name": "rock", "count": 7}],
+    )
+    apply_top_tag_counts(entity, {"rock": 100})
+    assert entity.tags[0]["count"] == 7
+
+
+def test_adopted_tags_are_ordered_by_popularity() -> None:
+    """When nothing else supplies an order, popularity is the useful one."""
+    from metaedit.archive.derive import DerivedEntity, apply_top_tag_counts
+
+    entity = DerivedEntity(identity="artist:x", kind="artist", name="X", name_norm="x", tags=[])
+    apply_top_tag_counts(entity, {"quiet": 3, "loud": 90, "medium": 40})
+    assert [tag["name"] for tag in entity.tags] == ["loud", "medium", "quiet"]
+
+
+def test_applying_no_counts_changes_nothing() -> None:
+    from metaedit.archive.derive import DerivedEntity, apply_top_tag_counts
+
+    entity = DerivedEntity(
+        identity="artist:x",
+        kind="artist",
+        name="X",
+        name_norm="x",
+        tags=[{"name": "rock", "count": None}],
+    )
+    apply_top_tag_counts(entity, {})
+    assert entity.tags == [{"name": "rock", "count": None}]

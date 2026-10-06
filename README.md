@@ -290,8 +290,14 @@ Both suites have now been run against real services (Jellyfin 12.2.0 at
 
 **Last.fm**
 
-- `artist.getTopTags` **does** carry `count` (10/10 tags), so phase 4's genre/style
-  ranking by popularity works.
+- `artist.getTopTags` **does** carry `count` (10/10 tags). It is also **envelope-free**
+  (`{"toptags": ...}`, no `{"artist": ...}` wrapper), so the entity derivation skipped
+  it entirely and every `lastfm_tag_edge.count` was null — which silently disabled
+  `TagPolicy.min_count` and reduced genre ranking to list order everywhere. The counts
+  are now folded into the artist entity *and* its tag edges; applying them only to the
+  edges would have looked correct while still filtering nothing, because the mapping
+  layer reads the entity. Album and track tag lists carry no counts anywhere in the API,
+  so their ranking stays list order by design rather than by accident.
 - `artist.getsimilar` puts the **peer list** under `artist` and loses the owning
   artist's name, confirming the owner must come from the request params.
 - `album.getInfo` returns tags under **`tags`** (no counts) and leaves `toptags`
