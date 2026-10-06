@@ -21,6 +21,10 @@ with no network access, into staging tables that are swapped in atomically.
 This is a tested property, not an aspiration: rebuilding from the raw archive
 with the network hard-blocked must reproduce the derived tables byte-for-byte.
 
+The concrete contract this implies — identity rules, field selection, the staging
+swap, and the acceptance criteria — is specified in
+[`docs/design/0003-derivation-and-reindex.md`](../design/0003-derivation-and-reindex.md).
+
 ## Consequences
 
 - Model and policy changes are cheap, offline and reversible; a bad parse is

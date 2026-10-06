@@ -42,7 +42,9 @@ Known deviations from the original plan, to settle before phase 4:
 - `lastfm_response.observation_count` counts observations *including* the first.
   `observation_count = 1` means "seen once", which is the intuitive reading.
 
-See [`docs/adr/`](docs/adr/README.md) for the decisions behind the design.
+See [`docs/adr/`](docs/adr/README.md) for the decisions behind the design, and
+[`docs/design/`](docs/design/README.md) for the implementation contracts that are
+fixed ahead of each phase.
 
 ## Prerequisites
 
@@ -190,7 +192,8 @@ uv run metaedit prune-raw --keep-days 365        # report; add --yes to actually
 ```
 
 Reserved for phase 3 (currently raises `NotImplementedError` so it cannot be
-mistaken for working):
+mistaken for working). The contract it must satisfy is fixed in
+[`docs/design/0003-derivation-and-reindex.md`](docs/design/0003-derivation-and-reindex.md):
 
 ```bash
 uv run metaedit reindex --dry-run                # what a model change would alter
