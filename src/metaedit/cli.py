@@ -15,6 +15,7 @@ from metaedit import __version__
 from metaedit.config import get_settings
 from metaedit.db.partitions import ensure_partitions_sync, prune_candidates
 from metaedit.db.session import sync_connection
+from metaedit.logging import configure_logging
 
 
 def _cmd_partitions(args: argparse.Namespace) -> int:
@@ -82,11 +83,17 @@ def _cmd_archive_stats(args: argparse.Namespace) -> int:
 
 
 def _cmd_reindex(args: argparse.Namespace) -> int:
-    from metaedit.archive.reindex import reindex
+    from metaedit.archive.reindex import ReindexError, reindex_with_settings
 
     settings = get_settings()
-    report = asyncio.run(reindex(settings, dry_run=args.dry_run, since=args.since, only=args.only))
-    print(json.dumps(report, indent=2, default=str))
+    try:
+        report = asyncio.run(
+            reindex_with_settings(settings, dry_run=args.dry_run, since=args.since, only=args.only)
+        )
+    except ReindexError as exc:
+        print(f"reindex refused: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(report.as_dict(), indent=2, default=str))
     return 0
 
 
@@ -127,6 +134,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    # Logs go to stderr: stdout carries the JSON report and must stay parseable.
+    settings = get_settings()
+    configure_logging(level=settings.log_level, as_json=settings.log_json, stream=sys.stderr)
     if args.command == "partitions" and args.months is None:
         args.months = get_settings().archive_partition_months_ahead
     result: int = args.func(args)

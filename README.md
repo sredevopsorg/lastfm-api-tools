@@ -13,8 +13,8 @@ field-level diff, and apply the accepted changes back to Jellyfin.
 
 ## Status
 
-Under construction, phase by phase. **Stopped deliberately after phase 2**, at the
-owner's request, before derivation (`reindex`) is implemented.
+Under construction, phase by phase. **Stopped deliberately after phase 3**, at the
+owner's request, before the mapping/diff layer is implemented.
 
 | Area | State |
 |---|---|
@@ -25,18 +25,27 @@ owner's request, before derivation (`reindex`) is implemented.
 | Jellyfin read: libraries, browse, batch item state, full write whitelist | **done** |
 | Last.fm client: typed models, shared rate limiter, backoff, archive-first reads | **done** |
 | Archive writes: append-only request log, content-addressed bodies, cap policy | **done** |
-| Derivation into entity/tag/similarity tables, `reindex` | **next** |
-| Tag policy, mapping, confidence, diff | planned (phase 4) |
+| Derivation into entity/tag/similarity tables, `reindex` | **done** |
+| Tag policy, mapping, confidence, diff | **next** |
 | Apply, snapshot, undo, bulk editing | planned (phases 5–6) |
 | Library browser, editor, archive explorer UI | planned (phase 7) |
 
-The archive tables therefore exist and are populated by every Last.fm call, but
-nothing derives from them yet: `metaedit reindex` raises `NotImplementedError`
-by design. The SPA shows the archive's capacity and contents and an
-API-connectivity panel; the browser and editor screens are not built yet.
+`metaedit reindex` derives the structured layer from the raw archive: entity rows
+for artists, albums and tracks, tag edges with real popularity counts, similar
+artists, autocorrect aliases and an archive-wide tag aggregate. It is reproducible
+by construction — every derived primary key is assigned deterministically, never by
+a sequence — and `--dry-run` reports the delta without writing.
 
-Known deviations from the original plan, to settle before phase 4:
+The SPA still shows only the archive's capacity and contents plus an
+API-connectivity panel; the browser and editor screens are not built yet, and
+nothing yet maps Last.fm data onto Jellyfin fields (that is phase 4).
 
+Known deviations from the original plan:
+
+- `reindex --since` parses and validates its timestamp but performs a full rebuild
+  rather than a partial derivation. Recorded in
+  [`docs/design/0003`](docs/design/0003-derivation-and-reindex.md) §7 with the
+  reasoning; it cannot produce wrong data, only cost time.
 - `BaseItemDto` has no rating field that survives a music-library round trip, so
   `CommunityRating`/`CriticRating` are read and preserved but never proposed as
   changes.
@@ -198,21 +207,24 @@ reads are counted in process memory and reported by `GET /api/archive/stats` und
 `reads`, alongside `stray_archive_reads`, which counts any historical rows written
 before that distinction was enforced.
 
-Operational commands that work today:
+Operational commands:
 
 ```bash
 uv run metaedit archive-stats                    # bytes stored vs. the cap
 uv run metaedit partitions --months 6            # extend the partition window
 uv run metaedit prune-raw --keep-days 365        # report; add --yes to actually drop
+uv run metaedit reindex                          # rebuild the derived layer
+uv run metaedit reindex --dry-run                # what a rebuild would change
+uv run metaedit reindex --only artist            # one table family
 ```
 
-Reserved for phase 3 (currently raises `NotImplementedError` so it cannot be
-mistaken for working). The contract it must satisfy is fixed in
-[`docs/design/0003-derivation-and-reindex.md`](docs/design/0003-derivation-and-reindex.md):
+`reindex` needs no network access and never writes to the raw layer, so it is safe
+to run at any time, and safe to interrupt: the swap is one transaction, so a failure
+leaves the previous derived tables untouched. Its `--dry-run` is the reviewer's tool
+for a parsing or policy change.
 
-```bash
-uv run metaedit reindex --dry-run                # what a model change would alter
-```
+The contract it implements is fixed in
+[`docs/design/0003-derivation-and-reindex.md`](docs/design/0003-derivation-and-reindex.md).
 
 **Nothing is deleted automatically.** The Last.fm API Terms of Service cap stored
 Last.fm Data at 100 MB; that number is measured and displayed, and pruning is

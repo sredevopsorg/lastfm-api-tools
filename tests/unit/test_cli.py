@@ -8,6 +8,7 @@ not be confused with "was there something to report".
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from unittest import mock
@@ -96,13 +97,46 @@ def test_negative_retention_is_rejected_before_any_work() -> None:
         cli._cmd_prune_raw(argparse.Namespace(keep_days=-1, yes=False))
 
 
-def test_reindex_reports_that_it_is_unimplemented(
+def test_reindex_prints_a_json_report(capsys: pytest.CaptureFixture[str]) -> None:
+    """The report is machine-readable: this is a command an operator scripts."""
+    from metaedit.archive.reindex import ReindexReport
+
+    report = ReindexReport(dry_run=True, artists=2, tag_edges=5)
+    with (
+        mock.patch.object(cli, "get_settings") as settings,
+        mock.patch(
+            "metaedit.archive.reindex.reindex_with_settings",
+            new=mock.AsyncMock(return_value=report),
+        ),
+    ):
+        settings.return_value = mock.Mock(database_url="postgresql+psycopg://unused/unused")
+        code = cli._cmd_reindex(argparse.Namespace(dry_run=True, since=None, only=None))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["dry_run"] is True
+    assert payload["counts"]["artists"] == 2
+
+
+def test_reindex_refusal_exits_non_zero_without_a_traceback(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The stub must fail loudly and name the design document."""
-    args = argparse.Namespace(dry_run=True, since=None, only=None)
-    with pytest.raises(NotImplementedError, match="phase 3"):
-        cli._cmd_reindex(args)
+    """A refused derivation is an operator error, not a crash."""
+    from metaedit.archive.reindex import ReindexError
+
+    with (
+        mock.patch.object(cli, "get_settings") as settings,
+        mock.patch(
+            "metaedit.archive.reindex.reindex_with_settings",
+            new=mock.AsyncMock(side_effect=ReindexError("dangling response reference")),
+        ),
+    ):
+        settings.return_value = mock.Mock(database_url="postgresql+psycopg://unused/unused")
+        code = cli._cmd_reindex(argparse.Namespace(dry_run=False, since=None, only=None))
+
+    captured = capsys.readouterr()
+    assert code == 2, "distinguishable from success and from an unexpected crash"
+    assert "dangling response reference" in captured.err
 
 
 def test_parser_requires_a_subcommand() -> None:

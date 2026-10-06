@@ -23,8 +23,14 @@ Consequences, all of which are testable:
    A reindex run twice with `now()` in the middle must produce identical output.
 3. **No dependence on insertion order.** Derived order must come from an explicit
    `ORDER BY` over raw columns, not from physical row order.
-4. **Deterministic entity ids.** Derived ids are assigned by a deterministic
-   `ORDER BY`, so a full rebuild reproduces the same numbers.
+4. **Deterministic ids, for every derived table.** Primary keys are assigned by
+   enumerating rows in a fixed order, never by a sequence. This applies to the
+   graph tables (`lastfm_tag_edge`, `lastfm_similarity`, `lastfm_artist_alias`,
+   `lastfm_entity_tag`) as much as to the entity tables: leaving the graph on
+   sequence-assigned ids makes the derived layer only *logically* reproducible,
+   with identical content under different keys, which is not what §1 asks for.
+   Sequences are advanced past the assigned ids afterwards so later inserts
+   cannot collide.
 
 Rule 2 is the one that is easy to violate accidentally and impossible to notice
 later: a `now()` in `last_seen_at` would make the store unreproducible while
@@ -182,11 +188,24 @@ tables row by row and reports `{added, removed, changed}` per table with a sampl
 of differing rows. It writes nothing. This is the reviewer's tool for a model or
 policy change, and it is the assertion form of the §1 invariant.
 
-**`--since` / `--only`** are the incremental path: restrict to entities touched by
-observations newer than the watermark (or to one table), recompute those entities,
-delete their existing `lastfm_tag_edge` / `lastfm_similarity` rows, and reinsert.
-Incremental and full runs must agree; a test asserts exactly that, because a
-divergence here would silently corrupt the derived layer over time.
+**`--only`** restricts the rebuild to one table family and is implemented: the
+named tables are truncated and repopulated, the others are left alone.
+
+**`--since` is accepted but does not yet do an incremental derivation.** It parses
+and validates the timestamp, logs it, and then performs a full rebuild. This is a
+deliberate deviation from the paragraph above, recorded here rather than left as a
+silent difference:
+
+* A full rebuild is always correct, so `--since` as an accepted-but-ignored
+  optimisation cannot produce wrong data — it only costs time.
+* The alternative, implementing partial derivation now, introduces a second code
+  path that must agree with the full one. The design already notes that a
+  divergence there would silently corrupt the derived layer, and nothing in
+  phase 4 depends on incremental speed.
+
+It becomes a real optimisation when a full rebuild is measured to be too slow —
+which needs a dataset far larger than anything tested so far. `--since` reports
+what it actually derived from, so the flag never lies about its own behaviour.
 
 ## 8. What reindex must NOT do
 
@@ -210,7 +229,9 @@ divergence here would silently corrupt the derived layer over time.
 1. Wiping every derived table and running `reindex` with the network hard-blocked
    reproduces them byte-for-byte — twice in a row, and across a fresh database.
 2. `reindex --dry-run` on an unchanged archive reports zero differences.
-3. `reindex --since` agrees with a full `reindex` on the same input.
+3. `reindex --since` agrees with a full `reindex` on the same input. **Currently
+   trivially true**, because `--since` performs a full rebuild; it becomes a real
+   assertion once partial derivation exists.
 4. `lastfm_entity_tag.entity_count` equals the number of distinct entities per tag
    in `lastfm_tag_edge`.
 5. An entity that gains an MBID later appears as **one** row, not two, and a test
