@@ -107,6 +107,10 @@ own. Put an authenticating proxy in front of it before exposing it anywhere.
 - The Jellyfin write contract is pinned by a vendored OpenAPI spec and asserted in
   `tests/contract/`, so a breaking server change fails CI rather than corrupting a
   library.
+- **A read-only key is enough through phase 4.** Metadata writes require the
+  `RequiresElevation` policy, so phase 5 needs an administrator key; until then a
+  non-admin key is sufficient and `GET /api/info` reports `key_is_not_elevated`
+  rather than failing.
 - **Postgres 18** is required: the archive uses declarative monthly partitioning
   on an append-only table.
 
@@ -175,20 +179,38 @@ database per test, so they never touch the data in `metaedit`. Point them
 elsewhere with `METAEDIT_TEST_DATABASE_URL` (default
 `postgresql+psycopg://metaedit:metaedit@localhost:5432/metaedit`).
 
-Tests marked `live_lastfm` and `live_jellyfin` are skipped unless the matching
-credentials are configured. **No live test has been run yet**: the Jellyfin and
-Last.fm adapters are verified against recorded fixtures and a stubbed transport,
-not against a real server. Four behaviours are therefore still assumptions and
-must be confirmed against a live instance before phase 5 (see the open items in
-the project plan):
+### Live tests
 
-1. the exact `Authorization` header encoding this Jellyfin version accepts;
-2. whether `Etag` actually changes after an `UpdateItem`;
-3. whether `Genres` writes create genre entities immediately or only on the next
-   library scan;
-4. whether the fields requested via `fields=` are all returned (the snapshot
-   fills any that are not, and logs `jellyfin_field_missing` when that happens —
-   watch for that warning on a real server).
+The Jellyfin and Last.fm adapters are verified against recorded fixtures and a
+stubbed transport. That is not the same as verified against a real server, so there
+are opt-in live tests that settle the assumptions fixtures cannot answer. Both are
+**read-only**: no Last.fm write method is ever called (`artist.addTags` and friends
+are not implemented), and no Jellyfin write endpoint is touched until phase 5.
+
+```bash
+# Last.fm: one real call per method, then a full end-to-end derivation on real data
+LASTFM_API_KEY=... uv run pytest -m live_lastfm -v -s
+
+# Jellyfin: version, auth header form, library visibility, field round-tripping
+JELLYFIN_URL=http://...:8096 JELLYFIN_API_KEY=... uv run pytest -m live_jellyfin -v -s
+```
+
+Both take `-s` deliberately: the tests print what they found, which is the point.
+
+What the Jellyfin suite settles:
+
+1. which `Authorization` header form the server accepts;
+2. whether items carry an `Etag` at all (whether it *changes* on write needs a
+   write, so that is phase 5; the ADR 0007 fallback is a hash of the whitelist);
+3. **whether every field requested via `fields=` is returned.** This is the one that
+   matters most: the write payload is built from a fresh read, so a whitelist field
+   the read omits becomes `None` and would be written back as a cleared value. The
+   test names any omitted field per item kind and fails if there are any.
+4. whether the server's item type names match the `MusicArtist`/`MusicAlbum`/`Audio`
+   values we query with — a mismatch would make every browse return nothing.
+
+Whether `Genres` writes create genre entities immediately still needs a write, so it
+is added in phase 5.
 
 ## The archive
 
