@@ -48,6 +48,34 @@ React + Vite single-page app, served by the same container as the API. Four scre
 | **Bulk** | Review a selection, apply the reviewed job, watch per-item progress, revert the batch as a unit. |
 | **Archive** | Storage-cap headroom, the derived layer's counts, stored entities with tags by popularity and similar artists. |
 
+### Upstream fidelity tests
+
+`tests/support/` holds in-process fakes of Jellyfin and Last.fm that reproduce what the
+real servers do — including the parts that cost real debugging time — and **reject what
+they reject**. `tests/integration/test_upstream_fidelity.py` runs the app against them.
+
+This exists because of a pattern worth naming: every bug that reached a user in this
+project was found by talking to the real servers, and **none** by the test suite. Each
+integration test carried its own handful of permissive route branches, so the mocks agreed
+with the client's assumptions rather than the servers' behaviour. A mock that accepts
+everything cannot fail, and a test that cannot fail is not verification.
+
+The fakes encode, each with a comment naming the live observation behind it:
+
+| Behaviour | Why it matters |
+| --- | --- |
+| `GET /Items/{id}` is **400** without `userId` | Broke the whole edit path: apply reads before writing, so the 400 looked like a write failure and no write was attempted |
+| `/Users/Me` is **400** for an API key | A *success* signal for a userless credential; treating it as failure hides the entire editor |
+| `GET /Artists` empties with `includeItemTypes` | A harmless-looking filter that blanks the browse |
+| `/Library/MediaFolders` omits `ItemId` | Leaves a browse with no id to scope by |
+| `Etag` only when requested | Without it, optimistic concurrency looks unimplementable |
+| `getTopTags` is envelope-free, `getInfo` tags have no counts | Popularity can only come from the top-tags call |
+| Last.fm spells one album with a U+2026 ellipsis and the same album with three dots | Counts silently dropped until the join tolerated it |
+| `POST /Items/{id}` nulls every field absent from the body | The hazard the whole tool is shaped around — the fake really performs the overwrite, so a dropped field visibly destroys data |
+
+Verified by reverting the corresponding fixes: the suite fails, and passes when they are
+restored.
+
 ### End-to-end tests
 
 Nine Playwright specs cover the critical journey through a real browser: browse, search,

@@ -28,7 +28,12 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.adapters.lastfm.client import LastfmClient
-from metaedit.domain.errors import ArchiveCapReached, LastfmError, LastfmNotFound
+from metaedit.domain.errors import (
+    ArchiveCapReached,
+    LastfmAuthError,
+    LastfmError,
+    LastfmNotFound,
+)
 from metaedit.domain.snapshot import NormalizedItem
 from metaedit.domain.writable import ItemKind
 from metaedit.logging import get_logger
@@ -177,7 +182,16 @@ async def harvest_item(
             # missing tag list should not discard an otherwise good getInfo.
             saw_not_found = True
             continue
+        except LastfmAuthError:
+            # Fatal, and deliberately not converted into an outcome. A rejected key fails
+            # every remaining item identically, so reporting it as a per-item miss would
+            # send the operator to inspect their library instead of their API key. The
+            # module docstring promised this and the broad `LastfmError` catch below
+            # contradicted it until a test caught the difference.
+            raise
         except LastfmError as exc:
+            # Everything else is reported as this item's outcome, so one unusual item does
+            # not abandon a library-wide fetch.
             outcome.error = exc.message
             outcome.error_code = exc.code
             break
@@ -201,8 +215,10 @@ async def harvest_item(
         )
         outcome.error_code = "no_entity_envelope"
 
-    if not outcome.found and search_fallback:
-        outcome.alternatives = await _search(client, item.kind, query)
+    if not outcome.found:
+        # The *reason* is reported whether or not a fallback search was requested.
+        # Nesting this inside the fallback branch made a miss silent when the caller turned
+        # the search off, which is the opposite of what a miss needs to be.
         if not outcome.error:
             outcome.error = (
                 "Last.fm has no match for this item."
@@ -210,6 +226,8 @@ async def harvest_item(
                 else "The Last.fm lookup returned nothing."
             )
             outcome.error_code = "not_found"
+        if search_fallback:
+            outcome.alternatives = await _search(client, item.kind, query)
 
     return outcome
 
