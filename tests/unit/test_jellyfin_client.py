@@ -418,8 +418,8 @@ def test_a_scheme_less_url_is_normalised() -> None:
     from metaedit.config import Settings
 
     assert (
-        Settings(_env_file=None, JELLYFIN_URL="192.168.1.77:8096").jellyfin_base_url
-        == "http://192.168.1.77:8096"
+        Settings(_env_file=None, JELLYFIN_URL="192.0.2.10:8096").jellyfin_base_url
+        == "http://192.0.2.10:8096"
     )
     assert (
         Settings(_env_file=None, JELLYFIN_URL="https://j.example/").jellyfin_base_url
