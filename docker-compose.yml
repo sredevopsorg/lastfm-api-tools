@@ -1,0 +1,80 @@
+name: metaedit
+
+services:
+  postgres:
+    image: docker.io/postgres:18-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-metaedit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-metaedit}
+      POSTGRES_DB: ${POSTGRES_DB:-metaedit}
+      # Deterministic initdb so collation cannot drift under the archive.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale-provider=icu --icu-locale=en-US"
+    command:
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=128MB
+    volumes:
+      # Postgres 18+ images store data in a major-version-specific subdirectory
+      # (compatible with pg_upgrade --link), so the mount point is the parent
+      # directory, not /var/lib/postgresql/data.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-metaedit} -d ${POSTGRES_DB:-metaedit}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  # Forward-only migrations run as their own idempotent step, never implicitly
+  # at application startup on every replica.
+  migrate:
+    build:
+      context: .
+      target: runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-metaedit}:${POSTGRES_PASSWORD:-metaedit}@postgres:5432/${POSTGRES_DB:-metaedit}
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-metaedit}:${POSTGRES_PASSWORD:-metaedit}@postgres:5432/${POSTGRES_DB:-metaedit}
+      JELLYFIN_URL: ${JELLYFIN_URL:-http://host.docker.internal:8096}
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
+      LASTFM_API_KEY: ${LASTFM_API_KEY:-}
+      LASTFM_USER_AGENT: ${LASTFM_USER_AGENT:-metaedit/0.1.0}
+      ARCHIVE_SOFT_CAP_BYTES: ${ARCHIVE_SOFT_CAP_BYTES:-104857600}
+      LASTFM_MAX_RPS: ${LASTFM_MAX_RPS:-4}
+      LOG_JSON: ${LOG_JSON:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WEB_DIST_DIR: /app/web
+    ports:
+      # Bind to loopback by default: the app holds an admin Jellyfin key and has
+      # no multi-user auth of its own.
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  pgdata:

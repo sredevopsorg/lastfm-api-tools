@@ -1,0 +1,6 @@
+# pnpm 11+ replaced onlyBuiltDependencies / neverBuiltDependencies with the
+# allowBuilds policy map. esbuild needs its postinstall script to place the
+# platform binary Vite/Rollup depends on; everything else stays blocked, which is
+# pnpm's supply-chain default.
+allowBuilds:
+  esbuild: true

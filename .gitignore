@@ -1,0 +1,47 @@
+# Local tooling installed into the workspace by setup scripts (uv).
+.tools/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Node
+node_modules/
+apps/web/dist/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.DS_Store
+*.log
+.docker-config/
+.buildx-config/
+.cache/
+.pnpm-store/
+.npm-cache/
+.pnpm-cache/
+.pnpm-data/
+.pnpm-state/
+.pnpm-config/
+.corepack/
+apps/web/.pnpm-store/
+apps/web/.npm-cache/
+apps/web/.pnpm-cache/
+apps/web/.pnpm-data/
+apps/web/.pnpm-state/
+apps/web/.pnpm-config/
+apps/web/.corepack/
+apps/web/node_modules/
