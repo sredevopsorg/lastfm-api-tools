@@ -940,11 +940,15 @@ def test_an_album_and_an_artist_with_the_same_name_do_not_collide() -> None:
     artist = DerivedEntity(
         identity="artist:x", kind="artist", name="Californication", name_norm="californication"
     )
+    # `entity_tag_key` folds the *raw* names, so those are what the fixture must set:
+    # re-folding the stored norms would apply the tolerance twice and could not match a
+    # response whose punctuation differs.
     album = DerivedEntity(
         identity="album:x",
         kind="album",
         name="Californication",
         name_norm="californication",
+        artist_name="Red Hot Chili Peppers",
         artist_name_norm="red hot chili peppers",
     )
     other = DerivedEntity(
@@ -952,10 +956,13 @@ def test_an_album_and_an_artist_with_the_same_name_do_not_collide() -> None:
         kind="album",
         name="Californication",
         name_norm="californication",
+        artist_name="Someone Else",
         artist_name_norm="someone else",
     )
-    assert entity_tag_key(artist) == ("californication",)
-    assert entity_tag_key(album) == ("red hot chili peppers", "californication")
+    # Case-preserving, like `normalize_name`: Last.fm echoes the canonical spelling, so
+    # folding case here would merge entities the raw layer keeps distinct.
+    assert entity_tag_key(artist) == ("Californication",)
+    assert entity_tag_key(album) == ("Red Hot Chili Peppers", "Californication")
     assert entity_tag_key(album) != entity_tag_key(other)
     assert entity_tag_key(album) != entity_tag_key(artist)
 
@@ -1008,3 +1015,59 @@ def test_a_toptags_response_without_attributes_is_ignored() -> None:
     )
     album = next(entity for entity in result.albums)
     assert all(tag["count"] is None for tag in album.tags)
+
+
+def test_typographic_variants_still_match_for_counts() -> None:
+    """Last.fm is inconsistent with itself about punctuation.
+
+    Live-verified against the real API: for one album, `album.getInfo` returned
+    "…and Justice for All" (U+2026) while `album.getTopTags` returned "...and Justice for
+    All" (three full stops). Keyed strictly, the counts were silently dropped and the
+    album showed popularity for none of its tags -- 0/5 instead of 4/5.
+    """
+    from metaedit.archive.derive import typographic_match_key
+
+    assert typographic_match_key("\u2026and Justice for All") == typographic_match_key(
+        "...and Justice for All"
+    )
+    # The other variants NFKC does not fold on its own.
+    assert typographic_match_key("\u2018quoted\u2019") == typographic_match_key("'quoted'")
+    assert typographic_match_key("a\u2013b") == typographic_match_key("a-b")
+    # Genuinely different names must stay different.
+    assert typographic_match_key("OK Computer") != typographic_match_key("Kid A")
+
+
+def test_typographic_folding_does_not_change_request_identity() -> None:
+    """`normalize_name` defines request identity, so it must NOT fold typography.
+
+    Changing it would reinterpret rows already in the archive -- a much larger blast radius
+    than a missing tag count, which is why the tolerance lives only in the counts join.
+    """
+    from metaedit.adapters.lastfm.canonical import normalize_name
+
+    assert normalize_name("\u2026and Justice for All") != normalize_name("...and Justice for All")
+
+
+def test_counts_survive_an_ellipsis_mismatch_between_endpoints() -> None:
+    """End to end through the derivation, with the punctuation differing on each side."""
+    album = {
+        "album": {
+            "name": "\u2026and Justice for All",
+            "artist": "Metallica",
+            "tags": {"tag": [{"name": "thrash metal"}]},
+        }
+    }
+    top = {
+        "toptags": {
+            "@attr": {"artist": "Metallica", "album": "...and Justice for All"},
+            "tag": [{"name": "thrash metal", "count": 100}],
+        }
+    }
+    result = derive_all(
+        [
+            obs(album, request_id=1, method="album.getinfo"),
+            obs(top, request_id=2, method="album.gettoptags"),
+        ]
+    )
+    derived = next(entity for entity in result.albums)
+    assert {tag["name"]: tag["count"] for tag in derived.tags} == {"thrash metal": 100}

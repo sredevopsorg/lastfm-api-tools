@@ -46,6 +46,12 @@ class SearchAlternative:
     listeners: int | None = None
 
 
+# Methods whose response carries the entity envelope, and therefore creates the derived
+# row. Only these make an item editable: `getTopTags` is envelope-free and enriches an
+# entity, it cannot bring one into existence.
+_ENTITY_METHODS = frozenset({"artist.getinfo", "album.getinfo", "track.getinfo"})
+
+
 @dataclass(slots=True)
 class HarvestOutcome:
     """What happened for one item, in enough detail to show and to act on."""
@@ -182,7 +188,18 @@ async def harvest_item(
         if result.served_from_archive:
             outcome.from_archive += 1
 
-    outcome.found = bool(outcome.methods)
+    # "Found" means an entity now exists, not merely that some call returned data.
+    # Reporting found for a tags-only fetch was misleading: the item looked ready and then
+    # the review step had no candidate to show, with nothing explaining why.
+    outcome.found = any(method in _ENTITY_METHODS for method in outcome.methods)
+
+    if outcome.methods and not outcome.found:
+        outcome.error = (
+            f"Last.fm has {' and '.join(outcome.methods)} for this item but no "
+            f"{outcome.kind.replace('Music', '').lower()} info, so no entity could be "
+            "created. The tags were archived and will apply once the info is available."
+        )
+        outcome.error_code = "no_entity_envelope"
 
     if not outcome.found and search_fallback:
         outcome.alternatives = await _search(client, item.kind, query)

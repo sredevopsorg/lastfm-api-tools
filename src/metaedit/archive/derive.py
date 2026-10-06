@@ -19,6 +19,7 @@ That split is what makes the logic testable without Postgres.
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -537,6 +538,43 @@ def _tracklist(value: Any) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 
+# Typographic characters that Last.fm mixes freely between its own endpoints. NFKC folds
+# the ellipsis and the ligatures but leaves quotes and dashes alone, so those are mapped
+# explicitly.
+_TYPOGRAPHIC_FOLD = str.maketrans(
+    {
+        "\u2018": "'",  # left single quote
+        "\u2019": "'",  # right single quote / apostrophe
+        "\u201c": '"',  # left double quote
+        "\u201d": '"',  # right double quote
+        "\u2013": "-",  # en dash
+        "\u2014": "-",  # em dash
+        "\u2212": "-",  # minus sign
+        "\u00a0": " ",  # non-breaking space
+    }
+)
+
+
+def typographic_match_key(value: str | None) -> str:
+    """A name key tolerant of the typographic variants Last.fm mixes between endpoints.
+
+    Needed because Last.fm is inconsistent with *itself*: for one album,
+    ``album.getInfo`` returned ``"\u2026and Justice for All"`` (a U+2026 ellipsis) while
+    ``album.getTopTags`` returned ``"...and Justice for All"`` (three full stops). Keyed
+    strictly, the counts were silently dropped and the album showed popularity for none of
+    its tags.
+
+    Deliberately **not** folded into ``normalize_name``: that function defines request
+    identity and the derived layer's keys, so changing it would reinterpret rows already
+    in the archive. This is used only for the tag-count join, where a near-miss costs a
+    missing count rather than a wrong entity.
+    """
+    if not value:
+        return ""
+    folded = unicodedata.normalize("NFKC", value).translate(_TYPOGRAPHIC_FOLD)
+    return normalize_name(folded)
+
+
 # Which `@attr` fields attribute a getTopTags response to an entity, per method. The
 # attribute is the key rather than the request params: `autocorrect=1` means the params
 # name what was *asked for* while the attribute names what was *served*, and it is the
@@ -556,7 +594,7 @@ def tag_attribution_key(method: str, attr: Mapping[str, Any]) -> tuple[str, ...]
         return None
     parts: list[str] = []
     for attribute in fields:
-        norm = normalize_name(attr.get(attribute))
+        norm = typographic_match_key(attr.get(attribute))
         if not norm:
             return None
         parts.append(norm)
@@ -569,9 +607,14 @@ def entity_tag_key(entity: DerivedEntity) -> tuple[str, ...]:
     Both halves must agree on the shape or counts silently never match: an artist keys
     on its name, an album or track on its credited artist plus its own name.
     """
+    # The entity's stored norms come from ``normalize_name``; re-fold them here so both
+    # sides of the join use the same tolerance.
     if entity.kind == "artist":
-        return (entity.name_norm,)
-    return (entity.artist_name_norm or "", entity.name_norm)
+        return (typographic_match_key(entity.name),)
+    return (
+        typographic_match_key(entity.artist_name),
+        typographic_match_key(entity.name),
+    )
 
 
 def derive_top_tag_counts(
