@@ -192,6 +192,11 @@ divergence here would silently corrupt the derived layer over time.
 
 - **Never touch the raw layer.** `lastfm_request` and `lastfm_response` are
   append-only. Not one row is updated or deleted.
+
+  `lastfm_request` records **HTTP attempts to Last.fm**, and only those. An
+  archive read is not an attempt and must never be written there; reads are
+  counted in process memory instead. A derived value that consumes request rows
+  must therefore treat every row as a real network call.
 - **Never touch `snapshot` or `audit_log`.** Those record what we wrote to
   Jellyfin and are not derived from Last.fm at all.
 - **Never call the network.** See §1. The only exception in the whole system is

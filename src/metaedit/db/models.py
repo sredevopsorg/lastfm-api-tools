@@ -141,6 +141,10 @@ class LastfmRequest(Base):
     http_status: Mapped[int | None] = mapped_column(Integer)
     lastfm_error_code: Mapped[int | None] = mapped_column(Integer)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Reserved, and always false: this table logs HTTP attempts to Last.fm, and a
+    # read served from the archive is the case where no attempt was made. Rows
+    # with true are historical, from before reads stopped being logged here;
+    # ``/api/archive/stats`` counts them as ``stray_archive_reads``.
     served_from_archive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     user_agent: Mapped[str | None] = mapped_column(Text)
     # Truncated sha256 of the API key: correlates requests to a key without storing it.

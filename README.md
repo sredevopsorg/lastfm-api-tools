@@ -192,6 +192,12 @@ Layers 2 and 3 are the contract for phase 3: they must be reproducible from
 layer 1 alone, with no network access. Their tables exist but nothing populates
 them yet.
 
+`lastfm_request` logs **HTTP attempts to Last.fm only**. A lookup answered from the
+archive is the case where no attempt was made, so it is not written there; those
+reads are counted in process memory and reported by `GET /api/archive/stats` under
+`reads`, alongside `stray_archive_reads`, which counts any historical rows written
+before that distinction was enforced.
+
 Operational commands that work today:
 
 ```bash

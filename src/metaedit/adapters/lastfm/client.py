@@ -38,6 +38,7 @@ from metaedit.adapters.lastfm.models import (
     parse_track,
 )
 from metaedit.adapters.lastfm.ratelimit import TokenBucket
+from metaedit.archive.stats import read_metrics
 from metaedit.archive.store import ArchiveStore, Observation
 from metaedit.config import Settings
 from metaedit.domain.errors import (
@@ -72,6 +73,11 @@ class LastfmResult:
 
     ``served_from_archive`` is surfaced to the UI so a user can tell why a result
     appeared instantly and whether it might be stale.
+
+    ``request_id`` identifies the HTTP attempt that **first stored** this body,
+    which on an archive hit is an earlier request -- not the current read. That
+    read is not itself an attempt and is therefore not in ``lastfm_request`` at
+    all; archive reads are counted in process memory (``archive/stats.py``).
     """
 
     body: dict[str, Any]
@@ -152,19 +158,15 @@ class LastfmClient:
         if allow_archive and self._store is not None and max_age is not None:
             cached = await self._store.find_recent(method, params, max_age=max_age)
             if cached is not None and not is_error_body(cached.body):
-                # Record the read so the timeline shows it was served offline.
-                await self._store.record(
-                    Observation(
-                        method=method,
-                        params=params,
-                        http_status=None,
-                        duration_ms=0,
-                        body=None,
-                        served_from_archive=True,
-                        user_agent=self._settings.lastfm_user_agent,
-                    )
-                )
+                # Deliberately *not* written to lastfm_request. That table is the
+                # append-only log of HTTP attempts to Last.fm, and an archive hit
+                # is precisely the case where we did not make one. Logging it there
+                # would inflate request_rows and the per-partition counts with rows
+                # that no rate-limit or failure analysis should ever see. Read
+                # counts are in-process metrics instead (see archive/stats.py).
+                self._record_archive_hit()
                 return self._result_from_archive(cached)
+            self._record_archive_miss()
 
         return await self._fetch(method, params, max_age=max_age)
 
@@ -314,8 +316,16 @@ class LastfmClient:
             )
         )
 
+    def _record_archive_hit(self) -> None:
+        read_metrics().record_hit()
+        log.info("lastfm_archive_hit")
+
+    def _record_archive_miss(self) -> None:
+        read_metrics().record_miss()
+        log.info("lastfm_archive_miss")
+
     def _result_from_archive(self, archived: Any) -> LastfmResult:
-        log.info("lastfm_archive_hit", response_id=archived.response_id)
+        log.debug("lastfm_archive_served", response_id=archived.response_id)
         return LastfmResult(
             body=archived.body,
             served_from_archive=True,

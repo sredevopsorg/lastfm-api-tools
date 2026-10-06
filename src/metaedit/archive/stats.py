@@ -1,12 +1,25 @@
-"""Archive byte accounting.
+"""Archive byte accounting and read metrics.
 
-The Last.fm API Terms of Service cap stored Last.fm Data at 100 MB. Those bytes
-are *measured and surfaced*, never silently deleted: pruning the archive is
-always an explicit operator decision (``metaedit prune-raw``).
+Two distinct things live here, and keeping them separate is the point:
+
+* **Byte accounting** measures how much Last.fm Data we have stored, against the
+  Terms of Service cap. This is a database question, answered by ``measure``.
+* **Read metrics** count how often the archive answered a lookup without a
+  network call. This is *not* a database question: an archive hit is precisely
+  the case where no HTTP attempt happened, so it must not be written into
+  ``lastfm_request`` -- that table is the append-only log of attempts, and
+  polluting it would make ``request_rows`` and the per-partition counts tell lies
+  to exactly the analyses (rate limiting, failure hunting) that read them.
+
+The byte cap is measured and surfaced, never silently enforced by deletion:
+pruning the archive is always an explicit operator decision (ADR 0011).
 """
 
 from __future__ import annotations
 
+import time
+from collections import deque
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import func, select, text
@@ -15,6 +28,80 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from metaedit.config import Settings
 from metaedit.db.models import ArchiveStat, LastfmRequest, LastfmResponse
 from metaedit.db.session import get_session_factory, init_engine
+
+# How many recent read decisions to keep for the snapshot. Only used to report a
+# recent-activity figure; unbounded growth would leak memory in a long-lived process.
+_RECENT_READS = 500
+
+
+@dataclass
+class ReadMetrics:
+    """Process-lifetime counts of archive hits and network fallbacks.
+
+    Intentionally in memory. These are operational counters, not archive data:
+    persisting them would recreate the very confusion between "we asked Last.fm"
+    and "we answered locally" that this class exists to prevent.
+    """
+
+    hits: int = 0
+    misses: int = 0
+    recent: deque[tuple[float, bool]] = field(default_factory=lambda: deque(maxlen=_RECENT_READS))
+
+    def record_hit(self, *, now: float | None = None) -> None:
+        self.hits += 1
+        self.recent.append((now if now is not None else time.time(), True))
+
+    def record_miss(self, *, now: float | None = None) -> None:
+        self.misses += 1
+        self.recent.append((now if now is not None else time.time(), False))
+
+    @property
+    def decisions(self) -> int:
+        return self.hits + self.misses
+
+    @property
+    def hit_ratio(self) -> float | None:
+        """``None`` rather than 0 when nothing has been decided yet.
+
+        A ratio of 0 would read as "the archive never helps", which is a claim we
+        cannot make before the first lookup.
+        """
+        if self.decisions == 0:
+            return None
+        return self.hits / self.decisions
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "hits": self.hits,
+            "misses": self.misses,
+            "decisions": self.decisions,
+            "hit_ratio": None if self.hit_ratio is None else round(self.hit_ratio, 4),
+            "trend": self._trend(),
+            "recent_window": len(self.recent),
+            "scope": "process",
+            "note": (
+                "In-memory counters since this process started. Archive reads are "
+                "deliberately not written to lastfm_request, which logs HTTP attempts "
+                "to Last.fm only."
+            ),
+        }
+
+    def _trend(self) -> list[dict[str, Any]]:
+        """A small ordered sample of recent decisions, oldest first."""
+        return [{"at": round(at, 3), "hit": hit} for at, hit in list(self.recent)[-20:]]
+
+
+_read_metrics = ReadMetrics()
+
+
+def read_metrics() -> ReadMetrics:
+    return _read_metrics
+
+
+def reset_read_metrics() -> None:
+    """Test hook: clear the process-wide counters."""
+    global _read_metrics
+    _read_metrics = ReadMetrics()
 
 
 async def measure(session: AsyncSession, settings: Settings) -> dict[str, Any]:
@@ -46,6 +133,7 @@ async def measure(session: AsyncSession, settings: Settings) -> dict[str, Any]:
         "observations": int(observations or 0),
         "request_rows": int(request_rows or 0),
         "oldest_request_at": oldest_request_at.isoformat() if oldest_request_at else None,
+        "reads": _read_metrics.snapshot(),
     }
 
 
@@ -74,6 +162,22 @@ async def collect_stats(settings: Settings) -> dict[str, Any]:
         )
         await session.commit()
     return stats
+
+
+async def count_stray_archive_reads(session: AsyncSession) -> int:
+    """Rows in ``lastfm_request`` that are local reads, not Last.fm attempts.
+
+    ``served_from_archive`` used to be written for archive hits, which put rows
+    into the attempt log for requests that were never made. New writes cannot do
+    that any more; this reports any historical rows so an operator can see (and
+    optionally clear) them instead of silently trusting ``request_rows``.
+    """
+    return int(
+        await session.scalar(
+            select(func.count()).select_from(LastfmRequest).where(LastfmRequest.served_from_archive)
+        )
+        or 0
+    )
 
 
 async def can_store_new_payload(

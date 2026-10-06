@@ -11,7 +11,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from metaedit.archive.stats import measure, partition_usage
+from metaedit.archive.stats import count_stray_archive_reads, measure, partition_usage
 from metaedit.config import Settings, get_settings
 from metaedit.db.session import get_session
 
@@ -25,4 +25,7 @@ async def archive_stats(
 ) -> dict[str, Any]:
     stats = await measure(session, settings)
     stats["partitions"] = await partition_usage(session)
+    # Surfaced so an operator can see historical rows written before archive hits
+    # stopped being logged as requests, rather than silently trusting request_rows.
+    stats["stray_archive_reads"] = await count_stray_archive_reads(session)
     return stats

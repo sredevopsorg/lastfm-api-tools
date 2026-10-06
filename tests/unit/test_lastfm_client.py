@@ -69,8 +69,14 @@ def _settings(**overrides: object) -> Settings:
 
 
 @pytest.fixture(autouse=True)
-def _clean_buckets() -> None:
+def _clean_process_state() -> None:
+    """Shared token buckets and read counters are process-wide: reset per test."""
+    from metaedit.archive.stats import reset_read_metrics
+
     reset_shared_buckets()
+    reset_read_metrics()
+    yield
+    reset_read_metrics()
 
 
 @pytest.fixture
@@ -287,6 +293,96 @@ async def test_archive_first_skips_the_network(database_url: str) -> None:
             assert not route.called, "a fresh archive hit must not spend a request"
         finally:
             await engine.dispose()
+
+
+@requires_postgres
+async def test_archive_hit_is_not_logged_as_a_request(database_url: str) -> None:
+    """Regression: an archive hit must not appear in the attempt log.
+
+    ``lastfm_request`` is the append-only log of HTTP attempts to Last.fm -- it
+    backs ``request_rows``, the per-partition counts, and any rate-limit or
+    failure analysis. An archive hit is exactly the case where no attempt was
+    made, so a row there would make those numbers lie. Reads are counted in
+    process memory instead.
+    """
+    from sqlalchemy import func, select
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from metaedit.archive.stats import read_metrics, reset_read_metrics
+    from metaedit.db.models import LastfmRequest
+    from metaedit.db.partitions import ensure_partitions
+
+    reset_read_metrics()
+    engine = create_async_engine(database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    with respx.mock(assert_all_called=False, base_url=ROOT) as router:
+        router.get(ROOT).respond(200, json={"artist": {"name": "SHOULD NOT BE USED"}})
+        try:
+            async with factory() as session:
+                await ensure_partitions(await session.connection(), months_ahead=1)
+                store = ArchiveStore(session, _settings())
+                await store.record(_observation("artist.getinfo", CLIENT_PARAMS, CHER))
+                await session.commit()
+                requests_after_fetch = await session.scalar(
+                    select(func.count()).select_from(LastfmRequest)
+                )
+
+                # Three reads, all served from the archive.
+                async with LastfmClient(_settings(), store=store) as client:
+                    for _ in range(3):
+                        artist, result = await client.artist_info(artist="Cher")
+                        assert result.served_from_archive is True
+                await session.commit()
+                requests_after_reads = await session.scalar(
+                    select(func.count()).select_from(LastfmRequest)
+                )
+                stray = await session.scalar(
+                    select(func.count())
+                    .select_from(LastfmRequest)
+                    .where(LastfmRequest.served_from_archive)
+                )
+
+            assert artist.name == "Cher"
+            assert requests_after_reads == requests_after_fetch == 1, (
+                "reads must not add rows to the attempt log"
+            )
+            assert stray == 0, "no row may claim to be an archive read"
+            counts = read_metrics()
+            assert counts.hits == 3, "reads are counted in memory instead"
+            assert counts.misses == 0
+        finally:
+            await engine.dispose()
+    reset_read_metrics()
+
+
+@requires_postgres
+async def test_archive_miss_is_counted_and_fetches(database_url: str) -> None:
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from metaedit.archive.stats import read_metrics, reset_read_metrics
+    from metaedit.db.partitions import ensure_partitions
+
+    reset_read_metrics()
+    engine = create_async_engine(database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    with respx.mock(assert_all_called=False, base_url=ROOT) as router:
+        route = router.get(ROOT).respond(200, json=CHER)
+        try:
+            async with factory() as session:
+                await ensure_partitions(await session.connection(), months_ahead=1)
+                store = ArchiveStore(session, _settings())
+                async with LastfmClient(_settings(), store=store) as client:
+                    await client.artist_info(artist="Cher")
+                await session.commit()
+
+            assert route.called, "an empty archive must go to the network"
+            counts = read_metrics()
+            assert counts.misses == 1
+            assert counts.hits == 0
+            assert counts.hit_ratio == 0.0
+        finally:
+            await engine.dispose()
+    reset_read_metrics()
 
 
 @requires_postgres

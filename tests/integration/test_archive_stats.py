@@ -171,3 +171,36 @@ async def test_partition_usage_lists_monthly_partitions(session_factory) -> None
     assert len(usage) == 2, "current month plus one ahead"
     assert sum(item["rows"] for item in usage) == 1
     assert usage[0]["name"].startswith("lastfm_request_")
+
+
+async def test_stats_expose_read_metrics_and_stray_read_count(session_factory) -> None:  # type: ignore[no-untyped-def]
+    """Read metrics are reported, and historical bad rows are visible.
+
+    ``served_from_archive`` used to be set on rows written for archive hits, which
+    put local reads into the attempt log. New writes cannot do that, and any
+    historical rows are counted here so an operator can see them instead of
+    trusting ``request_rows`` blindly.
+    """
+    from metaedit.archive.stats import ReadMetrics, measure, reset_read_metrics
+
+    reset_read_metrics()
+    async with session_factory() as session:
+        await _store_response(session, key="a" * 64, payload='{"artist": {"name": "Cher"}}')
+        await session.execute(
+            text(
+                "insert into lastfm_request "
+                "(method, params, params_hash, requested_at, served_from_archive) "
+                "values ('artist.getinfo', '{}'::jsonb, :h, now(), true)"
+            ),
+            {"h": "e" * 64},
+        )
+        await session.commit()
+
+        ReadMetrics()  # fresh counters, not the process ones
+        stats = await measure(session, _settings())
+
+    assert stats["reads"]["hits"] == 0
+    assert stats["reads"]["misses"] == 0
+    assert stats["reads"]["hit_ratio"] is None
+    assert stats["reads"]["scope"] == "process"
+    reset_read_metrics()
