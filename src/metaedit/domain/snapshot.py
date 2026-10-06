@@ -124,8 +124,8 @@ def from_dto(dto: dict[str, Any], kind: ItemKind) -> NormalizedItem:
         path=dto.get("Path"),
         album=dto.get("Album"),
         album_id=dto.get("AlbumId"),
-        artist_names=_names(dto.get("ArtistItems")),
-        album_artist_names=_names(dto.get("AlbumArtists")),
+        artist_names=_credited_artists(dto),
+        album_artist_names=_album_artists(dto),
         fields=fields,
     )
 
@@ -254,3 +254,34 @@ def _names(pairs: Any) -> list[str]:
     if not isinstance(pairs, list):
         return []
     return [str(pair["Name"]) for pair in pairs if isinstance(pair, dict) and pair.get("Name")]
+
+
+def _credited_artists(dto: dict[str, Any]) -> list[str]:
+    """The item's own artist names, from whichever spelling the server sent.
+
+    Jellyfin is inconsistent here: songs carry ``ArtistItems`` (structured pairs),
+    albums may carry ``Artists`` (plain strings) instead, and older responses carry
+    neither. Reading only one spelling silently yields no artist, and an album with no
+    artist cannot be looked up on Last.fm at all.
+    """
+    from_pairs = _names(dto.get("ArtistItems"))
+    if from_pairs:
+        return from_pairs
+    plain = dto.get("Artists")
+    if isinstance(plain, list):
+        return [str(name) for name in plain if name]
+    return []
+
+
+def _album_artists(dto: dict[str, Any]) -> list[str]:
+    """The album artist, ordered by specificity: pairs, then scalar, then plain list."""
+    from_pairs = _names(dto.get("AlbumArtists"))
+    if from_pairs:
+        return from_pairs
+    scalar = dto.get("AlbumArtist")
+    if isinstance(scalar, str) and scalar.strip():
+        return [scalar.strip()]
+    plain = dto.get("Artists")
+    if isinstance(plain, list):
+        return [str(name) for name in plain if name]
+    return []

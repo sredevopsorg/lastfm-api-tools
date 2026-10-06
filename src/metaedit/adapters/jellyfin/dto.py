@@ -92,16 +92,36 @@ class BaseItemDto(BaseModel):
     ArtistItems: list[NameGuidPair] | None = None
     # Needed for songs, and for detecting album-artist drift.
     AlbumArtists: list[NameGuidPair] | None = None
+    # The scalar form of the album artist, which the server often sends for albums
+    # *instead of* `AlbumArtists`. Both are in the vendored contract, and modelling only
+    # the array meant an album could yield no artist at all -- which silently made the
+    # Last.fm lookup for an album impossible to derive.
+    AlbumArtist: str | None = None
+    # A plain list of names, the third spelling the contract allows.
+    Artists: list[str] | None = None
 
     # --- music-specific display helpers ---
     Album: str | None = None
     AlbumId: str | None = None
 
     def names(self) -> list[str]:
-        return [pair.Name for pair in (self.ArtistItems or []) if pair.Name]
+        """The item's own credited artists, from whichever spelling the server sent."""
+        from_items = [pair.Name for pair in (self.ArtistItems or []) if pair.Name]
+        return from_items or [name for name in (self.Artists or []) if name]
 
     def album_artist_names(self) -> list[str]:
-        return [pair.Name for pair in (self.AlbumArtists or []) if pair.Name]
+        """The album artist, from whichever spelling the server sent.
+
+        Ordered by specificity: the structured array, then the plain list, then the
+        scalar. Returning an empty list here is not harmless -- an album with no artist
+        cannot be looked up on Last.fm at all.
+        """
+        from_pairs = [pair.Name for pair in (self.AlbumArtists or []) if pair.Name]
+        if from_pairs:
+            return from_pairs
+        if self.AlbumArtist:
+            return [self.AlbumArtist]
+        return [name for name in (self.Artists or []) if name]
 
 
 class BaseItemDtoQueryResult(BaseModel):

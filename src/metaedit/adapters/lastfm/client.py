@@ -392,6 +392,38 @@ class LastfmClient:
         )
         return parse_top_tags(result.body), result
 
+    async def album_top_tags(
+        self, *, artist: str | None = None, album: str | None = None, mbid: str | None = None
+    ) -> tuple[LastfmTopTags, LastfmResult]:
+        """Album tags with real popularity counts.
+
+        ``album.getInfo`` returns a tag list without counts, which left every album tag
+        edge with a null count and reduced album ranking to list order. This method is
+        the counts source for albums, exactly as ``artist.getTopTags`` is for artists,
+        and it shares the envelope-free ``{"toptags": ...}`` shape.
+        """
+        params: dict[str, Any] = {}
+        if mbid:
+            params["mbid"] = mbid
+        if artist and album:
+            params["artist"] = artist
+            params["album"] = album
+        result = await self._call("album.gettoptags", params, max_age=self._ttl("album.gettoptags"))
+        return parse_top_tags(result.body), result
+
+    async def track_top_tags(
+        self, *, artist: str | None = None, track: str | None = None, mbid: str | None = None
+    ) -> tuple[LastfmTopTags, LastfmResult]:
+        """Track tags with real popularity counts, the counterpart to the album method."""
+        params: dict[str, Any] = {}
+        if mbid:
+            params["mbid"] = mbid
+        if artist and track:
+            params["artist"] = artist
+            params["track"] = track
+        result = await self._call("track.gettoptags", params, max_age=self._ttl("track.gettoptags"))
+        return parse_top_tags(result.body), result
+
     async def artist_similar(
         self, *, artist: str | None = None, mbid: str | None = None, limit: int = 20
     ) -> tuple[list[LastfmSimilarArtist], LastfmResult]:

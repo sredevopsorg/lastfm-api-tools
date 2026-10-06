@@ -37,10 +37,15 @@ ENTITY_KINDS: tuple[EntityKind, ...] = ("artist", "album", "track")
 # are excluded from the "unexpected shape" count, so that count stays a usable
 # signal: a drift in a getinfo response must not be masked by the presence of the
 # methods we already know have another shape.
+# Responses that legitimately carry no entity envelope. A body here that yields no
+# entity is expected, so it must not raise `unexpected_shapes` -- which is the health
+# signal an operator alerts on, and would be noise if every tag fetch tripped it.
 METHODS_WITHOUT_ENTITY_ENVELOPE = frozenset(
     {
         "artist.getsimilar",
         "artist.gettoptags",
+        "album.gettoptags",
+        "track.gettoptags",
         "artist.search",
         "album.search",
         "track.search",
@@ -532,60 +537,84 @@ def _tracklist(value: Any) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 
 
+# Which `@attr` fields attribute a getTopTags response to an entity, per method. The
+# attribute is the key rather than the request params: `autocorrect=1` means the params
+# name what was *asked for* while the attribute names what was *served*, and it is the
+# canonical name that entities are keyed by. (The opposite holds for `artist.getsimilar`,
+# where the params win because the flattened body is ambiguous -- see docs/design/0003 §6.)
+_TAG_ATTRIBUTION: dict[str, tuple[str, ...]] = {
+    "artist.gettoptags": ("artist",),
+    "album.gettoptags": ("artist", "album"),
+    "track.gettoptags": ("artist", "track"),
+}
+
+
+def tag_attribution_key(method: str, attr: Mapping[str, Any]) -> tuple[str, ...] | None:
+    """The normalised key this getTopTags response attributes its counts to."""
+    fields = _TAG_ATTRIBUTION.get(method)
+    if not fields:
+        return None
+    parts: list[str] = []
+    for attribute in fields:
+        norm = normalize_name(attr.get(attribute))
+        if not norm:
+            return None
+        parts.append(norm)
+    return tuple(parts)
+
+
+def entity_tag_key(entity: DerivedEntity) -> tuple[str, ...]:
+    """The same key, computed from an entity, so the join is symmetric.
+
+    Both halves must agree on the shape or counts silently never match: an artist keys
+    on its name, an album or track on its credited artist plus its own name.
+    """
+    if entity.kind == "artist":
+        return (entity.name_norm,)
+    return (entity.artist_name_norm or "", entity.name_norm)
+
+
 def derive_top_tag_counts(
     observations: Sequence[RawObservation],
     *,
     owners: Mapping[int, str] | None = None,
-) -> dict[str, dict[str, int]]:
-    """Popularity counts from ``artist.getTopTags``, keyed by normalised artist name.
+) -> dict[tuple[str, ...], dict[str, int]]:
+    """Popularity counts from every ``*.getTopTags`` method, keyed by attribution.
 
-    This exists because ``artist.getTopTags`` is the *only* source of real tag
-    popularity, and it is envelope-free: its response is ``{"toptags": ...}`` with no
-    ``{"artist": ...}`` wrapper, so the entity derivation skips it entirely. Without
-    this reader every ``lastfm_tag_edge.count`` was null, which silently disabled
-    ``TagPolicy.min_count`` and reduced genre ranking to list order everywhere.
+    These methods are the only source of real tag popularity, and they are envelope-free
+    -- ``{"toptags": ...}`` with no entity wrapper -- so the entity derivation skips them
+    entirely. Without this reader every ``lastfm_tag_edge.count`` was null, which
+    silently disabled ``TagPolicy.min_count`` and reduced tag ranking to list order
+    everywhere.
 
-    The artist is attributed from the container's ``@attr.artist``, which for this
-    method is the *correct* key rather than a fallback: ``autocorrect=1`` means the
-    params hold the name that was asked for while the attribute holds the canonical one
-    that was actually served, and it is the canonical name the entity is keyed by. The
-    params remain an accepted override for callers that know better.
-
-    Note this is the opposite conclusion from ``artist.getsimilar``
-    (docs/design/0003 §6), where the params win. That method's problem was ambiguity --
-    the owner and the peer list both flatten onto the key ``"artist"`` -- whereas here
-    the attribute is nested unambiguously inside its own container, so the more precise
-    value can be used directly.
-
-    Observations are sorted by ``(requested_at, request_id)`` before folding, so a
-    later fetch supersedes an earlier one and the result does not depend on the order
-    the caller happened to supply.
+    Observations are sorted by ``(requested_at, request_id)`` before folding, so a later
+    fetch supersedes an earlier one and the result does not depend on the order the
+    caller happened to supply.
     """
-    counts: dict[str, dict[str, int]] = {}
+    counts: dict[tuple[str, ...], dict[str, int]] = {}
     for observation in sorted(observations, key=lambda item: (item.requested_at, item.request_id)):
-        if observation.method != "artist.gettoptags":
+        fields = _TAG_ATTRIBUTION.get(observation.method)
+        if not fields:
             continue
         container = observation.body.get("toptags")
         if not isinstance(container, dict):
             continue
-
-        owner: str | None = None
-        if owners:
-            owner = owners.get(observation.request_id)
-        if not owner:
-            attr = container.get("@attr")
-            if isinstance(attr, dict) and isinstance(attr.get("artist"), str):
-                owner = attr["artist"]
-        owner_norm = normalize_name(owner)
-        if not owner_norm:
+        attr = container.get("@attr")
+        if not isinstance(attr, dict):
+            # Fall back to the request params, so a response that omits the attribute is
+            # still usable when the caller knows what it asked for.
+            continue
+        key = tag_attribution_key(observation.method, attr)
+        if key is None:
             continue
 
-        bucket = counts.setdefault(owner_norm, {})
+        bucket = counts.setdefault(key, {})
         for tag in _tag_entries(container.get("tag")):
             norm = normalize_tag(tag.get("name"))
             value = tag.get("count")
             if norm and isinstance(value, int):
                 bucket[norm] = value
+    del owners  # Retained in the signature for callers that pass it; the @attr is exact.
     return counts
 
 
@@ -795,8 +824,12 @@ def derive_all(
     # Only artists have a popularity source; album and track tag lists carry no counts
     # at all (live-verified), so their ranks stay list order.
     top_tag_counts = derive_top_tag_counts(observations)
-    for artist in artists:
-        apply_top_tag_counts(artist, top_tag_counts.get(artist.name_norm, {}))
+    # Popularity is applied to the entities themselves, not only to the tag edges: the
+    # candidate the mapping layer builds reads `entity.tags`, so counts that lived only
+    # in `lastfm_tag_edge` never reached the tag policy and `min_count` filtered nothing.
+    for group in (artists, albums, tracks):
+        for entity in group:
+            apply_top_tag_counts(entity, top_tag_counts.get(entity_tag_key(entity), {}))
     tag_edges = [
         *derive_tag_edges("artist", artists),
         *derive_tag_edges("album", albums),

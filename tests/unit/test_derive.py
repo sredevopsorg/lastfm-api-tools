@@ -862,3 +862,149 @@ def test_applying_no_counts_changes_nothing() -> None:
     )
     apply_top_tag_counts(entity, {})
     assert entity.tags == [{"name": "rock", "count": None}]
+
+
+# ------------------------------------------- tag popularity across all three kinds
+
+ALBUM_BODY = {
+    "album": {
+        "name": "Californication",
+        "artist": "Red Hot Chili Peppers",
+        "tags": {"tag": [{"name": "rock"}, {"name": "alternative"}]},
+    }
+}
+
+ALBUM_TOPTAGS = {
+    "toptags": {
+        "@attr": {"artist": "Red Hot Chili Peppers", "album": "Californication"},
+        "tag": [
+            {"name": "alternative rock", "count": 100},
+            {"name": "rock", "count": 89},
+        ],
+    }
+}
+
+TRACK_BODY = {
+    "track": {
+        "name": "Californication",
+        "artist": {"name": "Red Hot Chili Peppers"},
+        "tags": {"tag": [{"name": "rock"}]},
+    }
+}
+
+TRACK_TOPTAGS = {
+    "toptags": {
+        "@attr": {"artist": "Red Hot Chili Peppers", "track": "Californication"},
+        "tag": [{"name": "rock", "count": 100}],
+    }
+}
+
+
+def test_album_tag_counts_reach_the_album_entity() -> None:
+    """The counts source for albums, which `album.getInfo` does not provide.
+
+    `album.getInfo` returns tags without counts, so without `album.getTopTags` every
+    album tag edge had a null count and album ranking was list order.
+    """
+    result = derive_all(
+        [
+            obs(ALBUM_BODY, request_id=1, method="album.getinfo"),
+            obs(ALBUM_TOPTAGS, request_id=2, method="album.gettoptags"),
+        ]
+    )
+    album = next(entity for entity in result.albums)
+    counts = {tag["name"]: tag["count"] for tag in album.tags}
+    # `alternative` is in the envelope but absent from TopTags: unknown, not zero.
+    assert counts == {"rock": 89, "alternative": None}
+
+
+def test_track_tag_counts_reach_the_track_entity() -> None:
+    result = derive_all(
+        [
+            obs(TRACK_BODY, request_id=1, method="track.getinfo"),
+            obs(TRACK_TOPTAGS, request_id=2, method="track.gettoptags"),
+        ]
+    )
+    track = next(entity for entity in result.tracks)
+    assert {tag["name"]: tag["count"] for tag in track.tags} == {"rock": 100}
+
+
+def test_an_album_and_an_artist_with_the_same_name_do_not_collide() -> None:
+    """Attribution keys differ per kind, which is what stops a cross-kind match.
+
+    An artist called "rock" and an album called "rock" must not share counts, and two
+    albums with the same title by different artists must not either.
+    """
+    from metaedit.archive.derive import DerivedEntity, entity_tag_key
+
+    artist = DerivedEntity(
+        identity="artist:x", kind="artist", name="Californication", name_norm="californication"
+    )
+    album = DerivedEntity(
+        identity="album:x",
+        kind="album",
+        name="Californication",
+        name_norm="californication",
+        artist_name_norm="red hot chili peppers",
+    )
+    other = DerivedEntity(
+        identity="album:y",
+        kind="album",
+        name="Californication",
+        name_norm="californication",
+        artist_name_norm="someone else",
+    )
+    assert entity_tag_key(artist) == ("californication",)
+    assert entity_tag_key(album) == ("red hot chili peppers", "californication")
+    assert entity_tag_key(album) != entity_tag_key(other)
+    assert entity_tag_key(album) != entity_tag_key(artist)
+
+
+def test_album_counts_do_not_leak_to_a_different_artist() -> None:
+    """Two albums of the same name by different artists keep their own popularity."""
+    mine = {
+        "album": {
+            "name": "Greatest Hits",
+            "artist": "Artist One",
+            "tags": {"tag": [{"name": "rock"}]},
+        }
+    }
+    theirs = {
+        "album": {
+            "name": "Greatest Hits",
+            "artist": "Artist Two",
+            "tags": {"tag": [{"name": "rock"}]},
+        }
+    }
+    top = {
+        "toptags": {
+            "@attr": {"artist": "Artist One", "album": "Greatest Hits"},
+            "tag": [{"name": "rock", "count": 99}],
+        }
+    }
+    result = derive_all(
+        [
+            obs(mine, request_id=1, method="album.getinfo"),
+            obs(theirs, request_id=2, minutes=1, method="album.getinfo"),
+            obs(top, request_id=3, minutes=2, method="album.gettoptags"),
+        ]
+    )
+    got = {
+        entity.artist_name: {tag["name"]: tag["count"] for tag in entity.tags}
+        for entity in result.albums
+    }
+    assert got["Artist One"] == {"rock": 99}
+    assert got["Artist Two"] == {"rock": None}, "counts must not cross artists"
+
+
+def test_a_toptags_response_without_attributes_is_ignored() -> None:
+    """No attribution means no safe target, so nothing is applied."""
+    body = {"toptags": {"tag": [{"name": "rock", "count": 100}]}}
+    result = derive_all(
+        [
+            obs(ALBUM_BODY, request_id=1, method="album.getinfo"),
+            obs(body, request_id=2, method="album.gettoptags"),
+        ]
+    )
+    album = next(entity for entity in result.albums)
+    assert all(tag["count"] is None for tag in album.tags)

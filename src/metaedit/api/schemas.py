@@ -425,3 +425,51 @@ BulkStreamEvent = Annotated[
     | BulkErrorEvent,
     Field(discriminator="type"),
 ]
+
+
+# -------------------------------------------------------------------- harvesting
+
+
+class SearchAlternativeView(BaseModel):
+    """A Last.fm search hit, offered when the derived query missed.
+
+    A miss that says only "not found" leaves the operator with nothing to do; these give
+    them something to pick.
+    """
+
+    name: str
+    artist: str | None
+    url: str | None
+    listeners: int | None
+
+
+class HarvestItemResponse(BaseModel):
+    """The outcome of fetching Last.fm data for one item."""
+
+    item_id: str
+    name: str
+    kind: str
+    # What we asked Last.fm for, so a wrong lookup is diagnosable rather than mysterious.
+    derived_query: dict[str, str | None]
+    found: bool
+    methods: list[str]
+    # Content ids of the stored bodies: every written value can be traced to one.
+    response_ids: list[str]
+    from_archive: int
+    error: str | None
+    error_code: str | None
+    alternatives: list[SearchAlternativeView]
+    # Present on the single-item endpoint, which rebuilds the derived layer inline.
+    derived: dict[str, int] | None = None
+
+
+class HarvestBatchResponse(BaseModel):
+    """The batch summary frame.
+
+    Per-item frames reuse ``HarvestItemResponse`` with the ``item_id``/``total`` that the
+    stream adds, so one model describes both the single and the streamed shape.
+    """
+
+    items: int
+    found: int
+    missing: int
