@@ -240,9 +240,13 @@ class LastfmAlbum(BaseModel):
     listeners: int | None = None
     playcount: int | None = None
     image: LastfmImage = Field(default_factory=LastfmImage)
+    # The current API returns the album tag list under `tags` (name and url only,
+    # no counts) and leaves `toptags` absent. Both are read, so either shape works.
     toptags: list[LastfmTag] = Field(default_factory=list)
     tags: list[LastfmTag] = Field(default_factory=list)
     tracks: list[LastfmTrackInAlbum] = Field(default_factory=list)
+    # Live-verified: album.getInfo does return a wiki with a usable summary.
+    wiki: LastfmWiki | None = None
 
     @field_validator("name", "artist", "id", "mbid", "url", "releasedate", mode="before")
     @classmethod
@@ -263,6 +267,11 @@ class LastfmAlbum(BaseModel):
     @classmethod
     def _tags(cls, value: Any) -> Any:
         return _tag_list(value)
+
+    @field_validator("wiki", mode="before")
+    @classmethod
+    def _wiki(cls, value: Any) -> Any:
+        return value if isinstance(value, dict) else None
 
     @field_validator("tracks", mode="before")
     @classmethod

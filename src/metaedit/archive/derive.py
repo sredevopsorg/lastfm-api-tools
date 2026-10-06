@@ -124,6 +124,8 @@ class DerivedEntity:
             data["artist_name"] = self.artist_name
             data["artist_name_norm"] = self.artist_name_norm
             data["tracklist"] = self.tracklist or None
+            data["overview"] = self.overview
+            data["wiki_published"] = self.wiki_published
         else:
             data["artist_name"] = self.artist_name
             data["artist_name_norm"] = self.artist_name_norm
@@ -444,6 +446,9 @@ def _select_fields(kind: EntityKind, identity: str, items: Sequence[Any]) -> Der
         listeners=_as_int(payload.get("listeners")),
         playcount=_as_int(payload.get("playcount")),
         images=_images(payload.get("image")),
+        # Live-verified: album tags arrive under `tags` (name and url, no counts)
+        # while artist tags arrive under `toptags` (with counts). Both are read, so
+        # ranking falls back to list order for albums rather than inventing counts.
         tags=_tag_entries(payload.get("toptags") or payload.get("tags")),
     )
 
@@ -457,10 +462,18 @@ def _select_fields(kind: EntityKind, identity: str, items: Sequence[Any]) -> Der
     elif kind == "album":
         entity.artist_name = _clean(payload.get("artist"))
         entity.artist_name_norm = normalize_name(entity.artist_name)
+        # Retained for tolerance. Live-verified: the current API returns no
+        # `releasedate` for album.getInfo, by name or by MBID, so this stays null --
+        # album years cannot be sourced from here.
         entity.releasedate = _clean(payload.get("releasedate"))
         entity.production_year = _parse_releasedate(entity.releasedate)
         entity.tracklist = _tracklist(payload.get("tracks"))
-        # Album getInfo carries no wiki: leaving overview unset is honest.
+        # Live-verified: albums DO carry a wiki. The original code asserted the
+        # opposite and discarded the text, so album overviews were unavailable.
+        wiki = payload.get("wiki")
+        if isinstance(wiki, dict):
+            entity.overview = _clean(wiki.get("summary"))
+            entity.wiki_published = _clean(wiki.get("published"))
     else:
         artist_ref = payload.get("artist")
         if isinstance(artist_ref, dict):

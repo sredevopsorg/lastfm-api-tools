@@ -206,8 +206,15 @@ class LastfmAlbum(Base):
     url: Mapped[str | None] = mapped_column(Text)
     listeners: Mapped[int | None] = mapped_column(BigInteger)
     playcount: Mapped[int | None] = mapped_column(BigInteger)
+    # `releasedate` is retained for tolerance: the current API no longer returns it
+    # for album.getInfo, so it stays null, but a response that does carry it still
+    # parses. See docs/design for the live-verified response shape.
     releasedate: Mapped[str | None] = mapped_column(Text)
     production_year: Mapped[int | None] = mapped_column(Integer)
+    # Albums DO carry a wiki. Verified against the live API after the original code
+    # asserted the opposite and discarded the text.
+    overview: Mapped[str | None] = mapped_column(Text)
+    wiki_published: Mapped[str | None] = mapped_column(Text)
     images: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     tags: Mapped[list[Any] | None] = mapped_column(JSONB)
     tracklist: Mapped[list[Any] | None] = mapped_column(JSONB)

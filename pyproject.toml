@@ -45,7 +45,10 @@ metaedit = ["py.typed"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q --strict-markers --timeout=90"
+# Live suites are opt-in. Without this they would run whenever credentials happen to
+# be present, which makes the default `pytest` reach real services: slow, rate-limited
+# and non-deterministic. Run them explicitly with `-m live_lastfm` / `-m live_jellyfin`.
+addopts = "-q --strict-markers --timeout=90 -m 'not live_lastfm and not live_jellyfin'"
 timeout_method = "thread"
 markers = [
     "live_lastfm: requires LASTFM_API_KEY and hits the real Last.fm API",

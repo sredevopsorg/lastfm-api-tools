@@ -188,29 +188,63 @@ are opt-in live tests that settle the assumptions fixtures cannot answer. Both a
 are not implemented), and no Jellyfin write endpoint is touched until phase 5.
 
 ```bash
-# Last.fm: one real call per method, then a full end-to-end derivation on real data
-LASTFM_API_KEY=... uv run pytest -m live_lastfm -v -s
-
-# Jellyfin: version, auth header form, library visibility, field round-tripping
-JELLYFIN_URL=http://...:8096 JELLYFIN_API_KEY=... uv run pytest -m live_jellyfin -v -s
+# Both read .env, so no exporting is needed.
+uv run pytest -m live_lastfm -v -s     # one real call per method, then reindex on real data
+uv run pytest -m live_jellyfin -v -s   # auth, libraries, field round-tripping, Etag
 ```
+
+They are **deselected by default** (`addopts` in `pyproject.toml`): credentials in
+`.env` would otherwise make an ordinary `pytest` reach real services, which is slow,
+rate-limited and non-deterministic.
 
 Both take `-s` deliberately: the tests print what they found, which is the point.
 
-What the Jellyfin suite settles:
+### Live-verified behaviour
 
-1. which `Authorization` header form the server accepts;
-2. whether items carry an `Etag` at all (whether it *changes* on write needs a
-   write, so that is phase 5; the ADR 0007 fallback is a hash of the whitelist);
-3. **whether every field requested via `fields=` is returned.** This is the one that
-   matters most: the write payload is built from a fresh read, so a whitelist field
-   the read omits becomes `None` and would be written back as a cleared value. The
-   test names any omitted field per item kind and fails if there are any.
-4. whether the server's item type names match the `MusicArtist`/`MusicAlbum`/`Audio`
-   values we query with — a mismatch would make every browse return nothing.
+Both suites have now been run against real services (Jellyfin 12.2.0 at
+`j.elclaustro.cl`, and the live Last.fm API). Findings that contradicted the code:
 
-Whether `Genres` writes create genre entities immediately still needs a write, so it
-is added in phase 5.
+**Jellyfin**
+
+- **Authentication is the `MediaBrowser` scheme**, not a bare key:
+  `Authorization: MediaBrowser Client="…", Device="…", DeviceId="…", Version="…", Token="…"`.
+  Jellyfin 12 **disabled the legacy channels**, so `Authorization: <key>`,
+  `X-Emby-Token` and `?api_key=` all return 401. A bare token without the scheme is
+  parsed as a malformed scheme and returns 400.
+- **An API key is userless**, so `GET /Users/Me` answers **400** — by design. The
+  body is a generic RFC9110 ProblemDetails that does *not* name the reason, so
+  elevation is confirmed by a follow-up authenticated read instead. API keys carry
+  administrator privileges, which is what an item update needs.
+- **`/Artists` must not be given `includeItemTypes`.** Passing
+  `includeItemTypes=MusicArtist` returned **0** results while a bare call returned
+  **594**. A filter that looks harmless silently emptied the browse.
+- **`/Library/MediaFolders` omits `ItemId`** for every library, so there was no id to
+  scope a browse by. `/Library/VirtualFolders` supplies it.
+- **`Etag` exists but only when requested via `fields=`.** Concluding otherwise would
+  have sent phase 5 down an unnecessary fallback. `DateLastSaved` is *not* returned
+  for music items even when requested, so `Etag` is the version token for ADR 0007.
+- Item type names (`MusicArtist`, `MusicAlbum`, `Audio`) are correct — 639 artists,
+  502 albums, 5442 songs on that server.
+- Every requested `fields=` value is honoured **except `ParentId`**, which is
+  returned anyway as part of the base DTO on some endpoints. No whitelist field is
+  omitted, so a read can round-trip the write payload.
+
+**Last.fm**
+
+- `artist.getTopTags` **does** carry `count` (10/10 tags), so phase 4's genre/style
+  ranking by popularity works.
+- `artist.getsimilar` puts the **peer list** under `artist` and loses the owning
+  artist's name, confirming the owner must come from the request params.
+- `album.getInfo` returns tags under **`tags`** (no counts) and leaves `toptags`
+  absent, so album tag ranking falls back to list order.
+- `album.getInfo` **does** return a usable `wiki.summary`. The phase 3 code asserted
+  the opposite and discarded it, so **album overviews were silently unavailable** —
+  fixed by migration `0002_album_overview`.
+- `album.getInfo` returns **no `releasedate`**, by name or by MBID, so album years
+  cannot be sourced from it. The column is retained for tolerance and stays null.
+
+Still needs a write, so it is added in phase 5: whether `Genres` writes create genre
+entities immediately.
 
 ## The archive
 

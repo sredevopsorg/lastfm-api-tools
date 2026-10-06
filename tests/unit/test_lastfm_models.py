@@ -170,10 +170,42 @@ def test_parse_album_reads_the_tracklist_and_release_date() -> None:
     assert album.tracks[0].mbid is None
 
 
-def test_parse_album_has_no_wiki() -> None:
-    """Album getInfo genuinely has no biography; the mapper must not expect one."""
-    album = parse_album(ALBUM_BODY)
-    assert not hasattr(album, "wiki")
+def test_parse_album_reads_the_wiki() -> None:
+    """Album getInfo DOES return a wiki.
+
+    The original version of this test asserted the opposite, and the code discarded
+    the text as a result. Live verification against the real API showed a substantial
+    ``wiki.summary`` on an album response, so album overviews -- one of the three
+    metadata types this tool exists to edit -- were silently unavailable.
+    """
+    album = parse_album(
+        {
+            "album": {
+                "name": "OK Computer",
+                "artist": "Radiohead",
+                "wiki": {"summary": "OK Computer is the third album.", "published": "11 Nov 2022"},
+            }
+        }
+    )
+    assert album.wiki is not None
+    assert album.wiki.summary == "OK Computer is the third album."
+
+
+def test_parse_album_tolerates_a_missing_wiki() -> None:
+    assert parse_album({"album": {"name": "x"}}).wiki is None
+
+
+def test_parse_album_reads_tags_from_the_tags_key() -> None:
+    """Live-verified: album tags arrive under `tags`, not `toptags`.
+
+    They also carry no counts, which is why tag ranking falls back to list order for
+    albums rather than inventing popularity.
+    """
+    album = parse_album(
+        {"album": {"name": "x", "tags": {"tag": [{"name": "alternative"}, {"name": "rock"}]}}}
+    )
+    assert [tag.name for tag in album.tags] == ["alternative", "rock"]
+    assert all(tag.count is None for tag in album.tags)
 
 
 def test_parse_album_tolerates_a_missing_payload() -> None:

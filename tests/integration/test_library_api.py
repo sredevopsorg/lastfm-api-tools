@@ -97,15 +97,17 @@ def _handler(request: httpx.Request) -> httpx.Response:
     path = request.url.path
     if path == "/Users/Me":
         return httpx.Response(200, json={"Id": "u", "Policy": {"IsAdministrator": True}})
-    if path == "/Library/MediaFolders":
+    if path == "/System/Info":
+        return httpx.Response(200, json={"Version": "12.2.0"})
+    if path == "/Library/VirtualFolders":
+        # VirtualFolders (a bare list), which is what supplies ItemId on a live
+        # server; MediaFolders returned null for every library on 12.2.0.
         return httpx.Response(
             200,
-            json={
-                "Items": [
-                    {"Name": "Music", "ItemId": "1", "CollectionType": "music"},
-                    {"Name": "Films", "ItemId": "2", "CollectionType": "movies"},
-                ]
-            },
+            json=[
+                {"Name": "Music", "ItemId": "1", "CollectionType": "music"},
+                {"Name": "Films", "ItemId": "2", "CollectionType": "movies"},
+            ],
         )
     if path == "/Items":
         return httpx.Response(200, json={"Items": [ARTIST, SONG], "TotalRecordCount": 2})

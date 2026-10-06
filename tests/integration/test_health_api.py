@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from metaedit.config import Settings
+from metaedit.config import Settings, get_settings
 from metaedit.main import create_app
 
 
 def _client(**overrides: object) -> TestClient:
+    """A client whose endpoints see the test settings, not the process-wide ones.
+
+    The routers inject settings via ``Depends(get_settings)``, which returns a
+    process-wide cached instance built from the developer's ``.env``. Without the
+    override below, a real credential in ``.env`` leaks into these assertions -- the
+    readiness probe reached a live server and reported it healthy, which is how this
+    defect surfaced.
+    """
     settings = Settings(
         _env_file=None,  # type: ignore[call-arg]
         LOG_JSON=False,
@@ -16,7 +24,9 @@ def _client(**overrides: object) -> TestClient:
         LASTFM_API_KEY="",
         **overrides,  # type: ignore[arg-type]
     )
-    return TestClient(create_app(settings), raise_server_exceptions=False)
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    return TestClient(app, raise_server_exceptions=False)
 
 
 def test_liveness_needs_no_dependencies() -> None:

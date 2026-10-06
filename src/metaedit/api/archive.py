@@ -40,9 +40,9 @@ router = APIRouter(prefix="/archive", tags=["archive"])
 EntityKind = Literal["artist", "album", "track"]
 
 # The three tables do not share a column set, which is why the per-kind branches
-# below exist rather than one uniform attribute read. LastfmAlbum in particular has
-# no `overview` (album getInfo carries no wiki), so reading it blindly raises
-# AttributeError at runtime -- the type checker catches exactly that.
+# below exist rather than one uniform attribute read. Reading a column a model does
+# not have raises AttributeError at runtime, and the type checker catches it -- which
+# is how the original blind `row.overview` read on albums was found.
 EntityRow = LastfmArtist | LastfmAlbum | LastfmTrack
 EntityModel = type[LastfmArtist] | type[LastfmAlbum] | type[LastfmTrack]
 
@@ -299,14 +299,15 @@ def _entity_summary(kind: EntityKind, row: EntityRow) -> dict[str, Any]:
 
 
 def overview_of(row: EntityRow) -> str | None:
-    """Album getInfo carries no wiki, so ``LastfmAlbum`` has no overview column.
+    """The overview, which every kind now has.
 
-    Reading it blindly raises AttributeError for albums, which is a 500 rather than
-    a missing field. ``isinstance`` keeps that decision visible and type-checked.
+    Albums gained the column after live verification showed album getInfo does return
+    a wiki. The previous isinstance narrowing is gone because the type checker now
+    guarantees the attribute exists on all three models -- which is a stronger check
+    than a runtime branch, and it is the same machinery that caught the original
+    blind read on albums.
     """
-    if isinstance(row, (LastfmArtist, LastfmTrack)):
-        return row.overview
-    return None
+    return row.overview
 
 
 def _extra_for(row: EntityRow) -> dict[str, Any]:

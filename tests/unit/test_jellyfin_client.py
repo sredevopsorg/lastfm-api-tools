@@ -37,17 +37,25 @@ def mock_router() -> respx.Router:
         yield router
 
 
-async def test_system_info_public_needs_no_auth_and_sends_no_header(
+async def test_public_probe_sends_identity_but_no_token(
     mock_router: respx.Router,
 ) -> None:
+    """The MediaBrowser scheme carries client identity even with no credential.
+
+    Live-verified: Jellyfin expects the scheme on every request, and a bare token
+    without it is parsed as a malformed scheme and rejected with 400. So the header
+    is always present -- but with no key configured it must carry no Token parameter.
+    """
     route = mock_router.get(f"{BASE}/System/Info/Public").respond(
         200, json={"ServerName": "home", "Version": "10.11.0"}
     )
     async with JellyfinClient(_settings(JELLYFIN_API_KEY="")) as client:
         info = await client.system_info_public()
     assert info.Version == "10.11.0"
-    assert "Authorization" not in route.calls[0].request.headers
-    assert "X-Emby-Token" not in route.calls[0].request.headers
+    header = route.calls[0].request.headers["Authorization"]
+    assert header.startswith("MediaBrowser ")
+    assert "Client=" in header and "DeviceId=" in header
+    assert "Token=" not in header, "no credential is configured, so none may be sent"
 
 
 async def test_item_state_requests_every_whitelist_field(mock_router: respx.Router) -> None:
@@ -61,12 +69,18 @@ async def test_item_state_requests_every_whitelist_field(mock_router: respx.Rout
     assert set(ITEM_FIELDS).issubset(set(requested))
 
 
-async def test_api_key_is_sent(mock_router: respx.Router) -> None:
+async def test_api_key_is_sent_in_the_mediabrowser_scheme(mock_router: respx.Router) -> None:
+    """A bare `<key>` Authorization header is rejected by Jellyfin 12.
+
+    The credential must travel as a quoted `Token=` parameter of the MediaBrowser
+    scheme, which is what the official SDKs send.
+    """
     route = mock_router.get(f"{BASE}/Users/Me").respond(200, json={"Id": "u", "Name": "admin"})
     async with JellyfinClient(_settings()) as client:
         await client.current_user()
-    request = route.calls[0].request
-    assert request.headers.get("Authorization") == "test-admin-key"
+    header = route.calls[0].request.headers["Authorization"]
+    assert header.startswith("MediaBrowser ")
+    assert 'Token="test-admin-key"' in header
 
 
 async def test_rejected_key_maps_to_auth_error_with_guidance(mock_router: respx.Router) -> None:
@@ -140,14 +154,47 @@ async def test_non_json_success_is_a_contract_error(mock_router: respx.Router) -
             await client.item("abc")
 
 
-async def test_can_write_metadata_requires_admin(mock_router: respx.Router) -> None:
+async def test_can_write_metadata_rejects_a_non_admin_user_token(mock_router: respx.Router) -> None:
+    """A *user token* that is not an administrator cannot write."""
     mock_router.get(f"{BASE}/Users/Me").respond(
         200, json={"Id": "u", "Name": "sam", "Policy": {"IsAdministrator": False}}
     )
     async with JellyfinClient(_settings()) as client:
         allowed, reason = await client.can_write_metadata()
     assert allowed is False
-    assert reason == "key_is_not_elevated"
+    assert reason == "user_is_not_an_administrator"
+
+
+async def test_can_write_metadata_accepts_a_userless_api_key(mock_router: respx.Router) -> None:
+    """An API key is userless, so `/Users/Me` answers 400 -- by design.
+
+    Live-verified on 12.2.0: the 400 body is a generic ProblemDetails and does not
+    name the reason, so the credential is confirmed by a second probe rather than by
+    parsing text that is not there. API keys carry administrator privileges, which is
+    exactly what an item update needs.
+    """
+    mock_router.get(f"{BASE}/Users/Me").respond(
+        400,
+        json={
+            "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+            "title": "Bad Request",
+            "status": 400,
+        },
+    )
+    mock_router.get(f"{BASE}/System/Info").respond(200, json={"Version": "12.2.0"})
+    async with JellyfinClient(_settings()) as client:
+        allowed, reason = await client.can_write_metadata()
+    assert allowed is True, "an API key is administrator-level"
+    assert reason is None
+
+
+async def test_can_write_metadata_rejects_a_bad_credential(mock_router: respx.Router) -> None:
+    mock_router.get(f"{BASE}/Users/Me").respond(401)
+    mock_router.get(f"{BASE}/System/Info").respond(401)
+    async with JellyfinClient(_settings()) as client:
+        allowed, reason = await client.can_write_metadata()
+    assert allowed is False
+    assert reason == "key_rejected"
 
 
 async def test_can_write_metadata_true_for_admin(mock_router: respx.Router) -> None:
@@ -161,15 +208,14 @@ async def test_can_write_metadata_true_for_admin(mock_router: respx.Router) -> N
 
 
 async def test_music_libraries_filters_out_non_music(mock_router: respx.Router) -> None:
-    mock_router.get(f"{BASE}/Library/MediaFolders").respond(
+    """VirtualFolders, not MediaFolders: live-verified MediaFolders omits ItemId."""
+    mock_router.get(f"{BASE}/Library/VirtualFolders").respond(
         200,
-        json={
-            "Items": [
-                {"Name": "Music", "ItemId": "1", "CollectionType": "music"},
-                {"Name": "Films", "ItemId": "2", "CollectionType": "movies"},
-                {"Name": "Mixed", "ItemId": "3"},
-            ]
-        },
+        json=[
+            {"Name": "Music", "ItemId": "1", "CollectionType": "music"},
+            {"Name": "Films", "ItemId": "2", "CollectionType": "movies"},
+            {"Name": "Mixed", "ItemId": "3"},
+        ],
     )
     async with JellyfinClient(_settings()) as client:
         libraries = await client.music_libraries()

@@ -35,11 +35,24 @@ from metaedit.domain.errors import (
 
 log = structlog.get_logger(__name__)
 
-# The OpenAPI contract declares a single apiKey scheme on the `Authorization`
-# header. Real servers have accepted more than one spelling across releases, so
-# both are tried once and the working one is remembered for the process.
-_PRIMARY_AUTH = "Authorization"
-_FALLBACK_AUTH = "X-Emby-Token"
+# Live-verified against Jellyfin 12.2.0: authentication uses the custom
+# `MediaBrowser` scheme on the `Authorization` header, with comma-separated
+# quoted parameters. A bare `Authorization: <key>` is rejected (401), and the
+# legacy channels (`X-Emby-Token`, `X-MediaBrowser-Token`, `?api_key=`) are
+# disabled from Jellyfin 12 onward by the `EnableLegacyAuthorization` kill-switch.
+#
+# The header carries client identity as well as the credential. `Token` is appended
+# only once a key exists, which is what lets the same builder serve an unauthenticated
+# probe.
+AUTH_SCHEME = "MediaBrowser"
+
+# Identity reported to the server, so sessions and logs name this tool rather than
+# appearing anonymous. `DeviceId` must be stable: Jellyfin permits one access token
+# per device id and re-authenticating the same pair revokes the previous token.
+CLIENT_NAME = "metaedit"
+DEVICE_NAME = "metaedit"
+DEVICE_ID = "metaedit-desktop"
+CLIENT_VERSION = "0.1.0"
 
 # Fields requested explicitly so one batched call hydrates the full write payload.
 #
@@ -47,6 +60,12 @@ _FALLBACK_AUTH = "X-Emby-Token"
 # back absent, and a snapshot that does not know a field's current value cannot
 # safely round-trip it (ADR 0003).
 ITEM_FIELDS: tuple[str, ...] = (
+    # Etag is what optimistic concurrency needs (ADR 0007). Live-verified on 12.2.0:
+    # items DO carry an Etag, but only when it is requested -- without it here the
+    # client saw None and concluded there was no concurrency token at all.
+    # DateLastSaved and DateLastRefreshed are NOT returned for music items even when
+    # requested, so Etag is the only usable version token.
+    "Etag",
     "Genres",
     "Tags",
     "ProviderIds",
@@ -80,8 +99,6 @@ class JellyfinClient:
         self._max_retries = max(settings.jellyfin_max_retries, 0)
         self._client = client
         self._owns_client = client is None
-        self._auth_header = _PRIMARY_AUTH
-        self._auth_resolved = False
 
     async def __aenter__(self) -> Self:
         if self._client is None:
@@ -95,14 +112,18 @@ class JellyfinClient:
 
     # ------------------------------------------------------------------ core
 
-    def _headers(self) -> dict[str, str]:
-        headers = {
+    def _headers(self, *, include_token: bool = True) -> dict[str, str]:
+        """Request headers, including the MediaBrowser authorization scheme.
+
+        ``include_token=False`` produces the identity-only header that Jellyfin
+        requires *before* a credential exists; sending a bare token without the scheme
+        is parsed as a malformed scheme and rejected.
+        """
+        return {
             "Accept": "application/json",
-            "User-Agent": "metaedit/0.1.0",
+            "User-Agent": f"{CLIENT_NAME}/{CLIENT_VERSION}",
+            "Authorization": build_authorization_header(self._key if include_token else None),
         }
-        if self._key:
-            headers[self._auth_header] = self._key
-        return headers
 
     async def _request(
         self,
@@ -113,6 +134,7 @@ class JellyfinClient:
         json_body: Any | None = None,
         auth_required: bool = True,
         sentinel_404: bool = False,
+        raw: bool = False,
     ) -> httpx.Response:
         if self._client is None:
             msg = "JellyfinClient must be used as an async context manager"
@@ -147,8 +169,6 @@ class JellyfinClient:
                 ) from exc
 
             if response.status_code in (401, 403) and auth_required:
-                if await self._try_alternate_auth(method, url, params, json_body, response):
-                    continue
                 raise UpstreamAuthError(
                     "Jellyfin rejected the API key. Metadata writes require an administrator "
                     "key: POST /Items/{itemId} is gated on the RequiresElevation policy.",
@@ -159,6 +179,11 @@ class JellyfinClient:
                 attempt += 1
                 await self._sleep_backoff(attempt, response.headers.get("Retry-After"))
                 continue
+
+            if raw:
+                # The caller wants to interpret the status itself: a 400 is a
+                # meaningful answer here, not an error to raise.
+                return response
 
             if response.status_code == 404 and sentinel_404:
                 return response
@@ -177,39 +202,6 @@ class JellyfinClient:
                     detail=_sanitise_body(response),
                 )
             return response
-
-    async def _try_alternate_auth(
-        self,
-        method: str,
-        url: str,
-        params: Mapping[str, Any] | None,
-        json_body: Any | None,
-        rejected: httpx.Response,
-    ) -> bool:
-        """Retry once with the other accepted spelling of the API key header."""
-        if self._auth_resolved or self._client is None:
-            return False
-        self._auth_resolved = True
-        alternate = _FALLBACK_AUTH if self._auth_header == _PRIMARY_AUTH else _PRIMARY_AUTH
-        if alternate == _PRIMARY_AUTH:
-            # Already tried both spellings.
-            return False
-        previous = self._auth_header
-        self._auth_header = alternate
-        probe = await self._client.request(
-            method,
-            url,
-            params=_clean_params(params),
-            json=json_body,
-            headers=self._headers(),
-        )
-        if probe.status_code in (401, 403):
-            self._auth_header = previous
-            return False
-        log.info("jellyfin_auth_header_resolved", header=alternate, rejected_header=previous)
-        # The probe already succeeded with the alternate header; return the retry
-        # signal so the caller re-issues with the now-correct header.
-        return False
 
     def _sleep_seconds(self, attempt: int, retry_after: str | None) -> float:
         if retry_after:
@@ -247,28 +239,79 @@ class JellyfinClient:
         return SystemInfoPublic.model_validate(payload)
 
     async def current_user(self) -> UserDto:
+        """The authenticated user.
+
+        Requires a **user access token**. An API key is userless, so this endpoint
+        answers 400 ``Token is not owned by a user.`` (live-verified on 12.2.0). Use
+        :meth:`can_write_metadata` to establish capability regardless of credential
+        type.
+        """
         payload = await self._get_json("/Users/Me")
         return UserDto.model_validate(payload)
 
     async def can_write_metadata(self) -> tuple[bool, str | None]:
-        """Whether the configured key can actually perform an item update."""
+        """Whether the configured credential can actually perform an item update.
+
+        Two credential families reach this method, and they answer differently:
+
+        * An **API key** is userless, so ``GET /Users/Me`` returns **400** with
+          ``Token is not owned by a user.`` (live-verified on 12.2.0). That is a
+          *success* signal, not a failure: an API key bypasses user identity and
+          carries administrator privileges, which is exactly what
+          ``POST /Items/{itemId}`` requires.
+        * A **user access token** returns 200 and reports ``IsAdministrator``.
+
+        Treating the API-key 400 as an error made every API-key deployment look
+        broken, which is why this inspects the response rather than catching an
+        exception.
+        """
         if not self._key:
             return False, "no_api_key_configured"
         try:
-            user = await self.current_user()
+            response = await self._request("GET", "/Users/Me", raw=True)
         except UpstreamAuthError:
             return False, "key_rejected"
         except (UpstreamUnavailable, UpstreamTimeout):
             return False, "unreachable"
-        if user.Policy.IsAdministrator:
-            return True, None
-        return False, "key_is_not_elevated"
+
+        if response.status_code == 200:
+            try:
+                policy = response.json().get("Policy") or {}
+            except ValueError:
+                return False, "unexpected_response"
+            if policy.get("IsAdministrator"):
+                return True, None
+            return False, "user_is_not_an_administrator"
+
+        if response.status_code == 400:
+            # A 400 here means the credential is userless, which is what an API key
+            # is. The body is a generic RFC9110 ProblemDetails and does NOT name the
+            # reason (live-verified on 12.2.0), so the credential is confirmed by a
+            # second probe rather than by parsing text that is not there.
+            probe = await self._request("GET", "/System/Info", raw=True)
+            if probe.status_code == 200:
+                # API keys bypass user identity and carry administrator privileges,
+                # which is exactly what POST /Items/{itemId} requires.
+                return True, None
+            return False, "credential_not_accepted_for_authenticated_reads"
+
+        if response.status_code in (401, 403):
+            return False, "key_rejected"
+        return False, f"unexpected_status_{response.status_code}"
 
     # ------------------------------------------------------------------ media
 
     async def music_libraries(self) -> list[VirtualFolderInfo]:
-        payload = await self._get_json("/Library/MediaFolders")
-        folders = [VirtualFolderInfo.model_validate(item) for item in payload.get("Items", [])]
+        """Music libraries, with the ids needed to browse inside them.
+
+        Uses ``/Library/VirtualFolders`` rather than ``/Library/MediaFolders``:
+        live-verified on 12.2.0, MediaFolders returned ``ItemId: null`` for every
+        library, so there was no id to scope a browse by, while VirtualFolders
+        returned it. Models are tolerant of either shape.
+        """
+        payload = await self._get_json("/Library/VirtualFolders")
+        entries = payload if isinstance(payload, list) else payload.get("Items", [])
+        folders = [VirtualFolderInfo.model_validate(item) for item in entries]
         return [folder for folder in folders if folder.CollectionType == "music"]
 
     async def artists(
@@ -281,6 +324,13 @@ class JellyfinClient:
         sort_by: Sequence[str] = ("SortName",),
         user_id: str | None = None,
     ) -> BaseItemDtoQueryResult:
+        """Browse album artists.
+
+        **No ``includeItemTypes``.** ``/Artists`` already returns artists, and
+        live-verified on 12.2.0 passing ``includeItemTypes=MusicArtist`` makes it
+        return zero results while a bare call returns all 594. The filter that looks
+        harmless is the one that silently empties the browse.
+        """
         params: dict[str, Any] = {
             "parentId": parent_id,
             "searchTerm": search_term,
@@ -289,7 +339,6 @@ class JellyfinClient:
             "sortBy": ",".join(sort_by),
             "sortOrder": "Ascending",
             "recursive": "true",
-            "includeItemTypes": "MusicArtist",
             "fields": ",".join(ITEM_FIELDS),
             "enableTotalRecordCount": "true",
             "userId": user_id,
@@ -383,6 +432,29 @@ class JellyfinClient:
                 "replaceAllImages": str(replace_all_images).lower(),
             },
         )
+
+
+def build_authorization_header(token: str | None) -> str:
+    """The `MediaBrowser` authorization header Jellyfin expects.
+
+    Values are quoted and percent-encoded, matching the official SDKs: the server
+    URL-decodes them after parsing, and an unencoded quote or comma in a value would
+    otherwise break the comma-separated parameter list.
+    """
+    from urllib.parse import quote
+
+    def param(key: str, value: str) -> str:
+        return f'{key}="{quote(value, safe="")}"'
+
+    parts = [
+        param("Client", CLIENT_NAME),
+        param("Device", DEVICE_NAME),
+        param("DeviceId", DEVICE_ID),
+        param("Version", CLIENT_VERSION),
+    ]
+    if token:
+        parts.append(param("Token", token))
+    return f"{AUTH_SCHEME} " + ", ".join(parts)
 
 
 def _clean_params(params: Mapping[str, Any] | None) -> dict[str, Any] | None:

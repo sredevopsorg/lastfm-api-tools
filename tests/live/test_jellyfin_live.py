@@ -66,25 +66,33 @@ async def test_server_is_reachable_and_reports_a_version(client: JellyfinClient)
     assert info.Version, "a reachable Jellyfin must report its version"
 
 
-async def test_authentication_header_form(client: JellyfinClient) -> None:
-    """Assumption 1: which header spelling the server accepts.
+async def test_credential_is_accepted_and_can_write(client: JellyfinClient) -> None:
+    """Settled against a live 12.2.0 server, and no longer a guess.
 
-    ``JellyfinClient`` already tries both and remembers the winner, so this asserts
-    that one of them works and prints which. If both fail, the key is wrong or the
-    header scheme differs from the OpenAPI contract.
+    Jellyfin 12 disabled the legacy auth channels, so a bare
+    ``Authorization: <key>`` or ``X-Emby-Token`` is rejected with 401. The working
+    form is the ``MediaBrowser`` scheme with quoted parameters -- the same header the
+    official SDKs send. This asserts a credential is accepted and reports which kind
+    it is, because the two kinds answer ``/Users/Me`` differently by design.
     """
-    user = await client.current_user()
-    assert user.Name, "an authenticated call must identify the user"
-    print(f"\nauthenticated as {user.Name!r} (admin={user.Policy.IsAdministrator})")
-    print(f"  header form that worked: {client._auth_header}")
+    from metaedit.adapters.jellyfin.client import build_authorization_header
+
+    print(f"\nheader sent: {build_authorization_header('REDACTED')}")
 
     allowed, reason = await client.can_write_metadata()
-    print(f"  can write metadata: {allowed} ({reason})")
-    if not allowed:
-        pytest.skip(
-            f"the key is not elevated ({reason}); read endpoints still work, but the "
-            "write path cannot be exercised. Phase 5 needs an administrator key."
-        )
+    print(f"  credential accepted for metadata writes: {allowed} ({reason or 'admin-level'})")
+
+    # An API key is userless, so /Users/Me answers 400; a user token answers 200.
+    try:
+        user = await client.current_user()
+        print(f"  credential kind: user token for {user.Name!r}")
+    except Exception as exc:
+        print(f"  credential kind: API key (userless; /Users/Me -> {type(exc).__name__})")
+
+    assert allowed, (
+        f"the configured credential must be able to write metadata, got {reason!r}. "
+        "Phase 5 needs an administrator key or an admin user token."
+    )
 
 
 async def test_music_libraries_are_visible(client: JellyfinClient) -> None:
@@ -154,20 +162,26 @@ async def test_item_fields_requests_are_honoured(client: JellyfinClient) -> None
 
 
 async def test_etag_is_present(client: JellyfinClient) -> None:
-    """Assumption 2, partially: optimistic concurrency needs an Etag at all.
+    """Assumption 2: optimistic concurrency needs a version token, and gets one.
 
-    Whether it *changes* after a write cannot be checked without writing, which is
-    phase 5's job. If items carry no Etag, the fallback is a hash of the whitelist
-    fields plus ``DateLastSaved`` (ADR 0007).
+    Live-verified on 12.2.0: music items carry an ``Etag``, but **only when it is
+    requested via `fields=`**. The first version of this test concluded there was no
+    concurrency token because ``ITEM_FIELDS`` omitted it, which would have sent
+    phase 5 down a fallback path it does not need.
+
+    ``DateLastSaved`` is not returned for music items even when asked for, so the
+    ADR 0007 fallback is moot: ``Etag`` is the token.
     """
-    result = await client.artists(limit=5)
-    if not result.Items:
-        pytest.skip("no artists to inspect")
-    with_etag = [item.Name for item in result.Items if item.Etag]
-    print(f"\nitems with an Etag: {len(with_etag)}/{len(result.Items)}")
-    print(f"  DateLastSaved present: {sum(1 for i in result.Items if i.DateLastSaved)}")
-    if not with_etag:
-        pytest.skip("no Etag on music items; the ADR 0007 fallback will be needed")
+    for kind in ("MusicArtist", "MusicAlbum", "Audio"):
+        result = await client.items(kind=kind, limit=3)  # type: ignore[arg-type]
+        if not result.Items:
+            continue
+        present = [item for item in result.Items if item.Etag]
+        print(f"\n{kind}: {len(present)}/{len(result.Items)} items carry an Etag")
+        if present:
+            print(f"  sample: {present[0].Etag}")
+        print(f"  DateLastSaved returned: {sum(1 for i in result.Items if i.DateLastSaved)}")
+        assert present, f"{kind} items must carry an Etag for optimistic concurrency"
 
 
 async def test_item_type_names_match_what_we_query(client: JellyfinClient) -> None:
