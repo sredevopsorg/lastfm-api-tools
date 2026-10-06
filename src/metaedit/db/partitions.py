@@ -82,14 +82,6 @@ async def ensure_partitions(conn: AsyncConnection, *, months_ahead: int = 3) -> 
     return created
 
 
-def next_maintenance_at(*, now: datetime | None = None) -> datetime:
-    """When to next roll the partition window forward (first of next month)."""
-    current = now or datetime.now(UTC)
-    return datetime.combine(
-        add_months(month_start(current.date()), 1), datetime.min.time(), tzinfo=UTC
-    )
-
-
 def prune_candidates(*, keep_days: int, now: datetime | None = None) -> list[str]:
     """Partitions wholly older than ``keep_days`` -- reported by ``metaedit prune-raw``.
 

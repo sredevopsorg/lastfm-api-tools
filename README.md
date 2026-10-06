@@ -19,6 +19,7 @@ owner's request, before derivation (`reindex`) is implemented.
 | Area | State |
 |---|---|
 | Container, Postgres 18, migrations, health endpoints | **done** |
+| CI: lint, types, tests, SPA build, image smoke test | **done** |
 | Archive schema (raw + derived), byte accounting vs. the ToS cap | **done** |
 | SPA shell served by the API | **done** |
 | Jellyfin read: libraries, browse, batch item state, full write whitelist | **done** |
@@ -145,6 +146,14 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy
 uv run pytest
 ```
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same four gates, plus
+the SPA typecheck/build and a deployment check that builds the image, brings the
+compose stack up with `--wait`, and probes the API — so a green run means the
+container actually starts, not merely that it compiles. `uv` and the Postgres
+image are pinned to the versions used locally, and the workflow asserts the
+service really is Postgres 18, because a silent fallback to another major version
+would invalidate the partition tests.
 
 Integration tests need a reachable Postgres 18; they create and drop a disposable
 database per test, so they never touch the data in `metaedit`. Point them

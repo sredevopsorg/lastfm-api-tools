@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Matches the Dockerfile's runtime stage. requires-python is >=3.12, and this
+  # is the interpreter the image actually ships, so it is the one to test.
+  PYTHON_VERSION: "3.12"
+  # Pinned to the version used locally (uv 0.12.23); renaming the tool version is
+  # a deliberate change, not something CI should drift into.
+  UV_VERSION: "0.12.23"
+  NODE_VERSION: "22"
+
+jobs:
+  # The Postgres service is declared per job that needs it rather than on a
+  # reusable workflow, so each job's dependency is visible in one place.
+  python:
+    name: Lint, types and tests
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        # Pinned to the same tag the compose stack uses. The database is treated
+        # as an attached resource, so the default credentials are irrelevant --
+        # the test suite creates and drops its own disposable databases.
+        image: docker.io/postgres:18-trixie
+        env:
+          POSTGRES_USER: metaedit
+          POSTGRES_PASSWORD: metaedit
+          POSTGRES_DB: metaedit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U metaedit -d metaedit"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      METAEDIT_TEST_DATABASE_URL: postgresql+psycopg://metaedit:metaedit@localhost:5432/metaedit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install (locked)
+        run: uv sync --extra dev --frozen
+
+      - name: Confirm the service is really Postgres 18
+        # A silent fallback to a different major version would invalidate the
+        # partition tests, which is exactly the kind of failure that is invisible
+        # until it bites in production.
+        run: |
+          psql --version
+          version=$(PGPASSWORD=metaedit psql -h localhost -U metaedit -d metaedit -tAc "show server_version")
+          echo "server_version=$version"
+          case "$version" in
+            18.*) ;;
+            *) echo "expected Postgres 18, got '$version'"; exit 1 ;;
+          esac
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Upload coverage artefacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-output
+          path: .pytest_cache/v/cache/lastfailed
+          if-no-files-found: ignore
+
+  contract:
+    name: API contract
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --extra dev --frozen
+      # Kept as its own job so a Jellyfin spec change is unmistakable in the
+      # checks list rather than buried in a test summary.
+      - name: Jellyfin OpenAPI contract
+        run: uv run pytest tests/contract -q
+
+  web:
+    name: SPA typecheck and build
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - name: Install (locked)
+        # The lockfile is committed, so a resolving install here would mean CI
+        # tested a different dependency tree from the one that ships.
+        run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+
+  image:
+    name: Image builds and starts healthy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -t metaedit:ci .
+
+      - name: Start the stack and wait for health
+        # Verifies the real deployment path, not just that the image compiles:
+        # migrations run as their own service, and the app must pass its own
+        # HEALTHCHECK, which is dependency-free by design.
+        run: |
+          docker compose up -d --wait --wait-timeout 180
+
+      - name: Probe the API
+        # `set -e` plus `grep -q` is the assertion: a missing or wrong value fails
+        # the step. Output is printed separately so a failure is diagnosable.
+        run: |
+          set -euo pipefail
+          echo "--- /api/health"
+          curl -fsS http://127.0.0.1:8080/api/health
+          echo
+          curl -fsS http://127.0.0.1:8080/api/health | grep -q '"status":"ok"'
+
+          echo "--- /api/archive/stats"
+          curl -fsS http://127.0.0.1:8080/api/archive/stats
+          echo
+          curl -fsS http://127.0.0.1:8080/api/archive/stats | grep -q '"state"'
+
+          echo "--- SPA"
+          curl -fsS -o /dev/null -w "root=%{http_code}\n" http://127.0.0.1:8080/
+
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

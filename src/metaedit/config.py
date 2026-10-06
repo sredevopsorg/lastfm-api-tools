@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LASTFM_API_ROOT = "http://ws.audioscrobbler.com/2.0/"
@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     archive_enabled: bool = True
     archive_log_requests: bool = True
     archive_soft_cap_bytes: int = LASTFM_TOS_CAP_BYTES
+    # Both ratios are fractions of archive_soft_cap_bytes, and the warning must
+    # not fire after the refusal -- see _ratios_are_ordered below.
     archive_warn_ratio: float = 0.8
     archive_refuse_ratio: float = 1.0
     # How long a stored Last.fm response may be served without a refresh.
@@ -83,10 +85,29 @@ class Settings(BaseSettings):
     @field_validator("archive_warn_ratio", "archive_refuse_ratio")
     @classmethod
     def _ratio_in_range(cls, v: float) -> float:
-        if not 0 < v <= 10:
-            msg = "ratio must be greater than 0 and no more than 10"
+        if not 0 < v <= 1:
+            msg = "ratio must be greater than 0 and at most 1 (a fraction of the cap)"
             raise ValueError(msg)
         return v
+
+    @model_validator(mode="after")
+    def _ratios_are_ordered(self) -> Settings:
+        """The warning must be able to fire before the refusal.
+
+        These two thresholds guard the Last.fm storage cap, and the warning is
+        what gives an operator time to act. If warn sits at or beyond refuse, the
+        warning is unreachable dead code: the only signal is a hard failure on the
+        next write. That misconfiguration is silently accepted by a per-field
+        range check, so it is rejected here instead.
+        """
+        if self.archive_warn_ratio > self.archive_refuse_ratio:
+            msg = (
+                "archive_warn_ratio must not exceed archive_refuse_ratio, "
+                "otherwise the warning never fires before data is refused "
+                f"(warn={self.archive_warn_ratio}, refuse={self.archive_refuse_ratio})"
+            )
+            raise ValueError(msg)
+        return self
 
     @field_validator("archive_soft_cap_bytes")
     @classmethod

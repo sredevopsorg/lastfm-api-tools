@@ -27,7 +27,12 @@ def _cmd_partitions(args: argparse.Namespace) -> int:
 
 
 def _cmd_prune_raw(args: argparse.Namespace) -> int:
-    """Report (and only on --yes, drop) archive partitions older than N days."""
+    """Report (and only on --yes, drop) archive partitions older than N days.
+
+    Exits 0 in both report and drop modes. Reporting is what a dry run is *for*,
+    so finding candidates is success, not failure -- a non-zero exit would make
+    every shell `&&` chain and CI step treat a working retention check as broken.
+    """
     settings = get_settings()
     candidates = prune_candidates(keep_days=args.keep_days)
     existing = _existing_partitions(settings.database_url)
@@ -43,7 +48,7 @@ def _cmd_prune_raw(args: argparse.Namespace) -> int:
             "This deletes archived Last.fm history irreversibly. Re-run with --yes to proceed.",
             file=sys.stderr,
         )
-        return 1
+        return 0
 
     with sync_connection(settings.database_url) as engine, engine.begin() as conn:
         for name in present:

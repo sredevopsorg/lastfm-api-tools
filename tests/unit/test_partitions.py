@@ -15,7 +15,6 @@ from metaedit.db.partitions import (
     add_months,
     ensure_partitions_sync,
     month_start,
-    next_maintenance_at,
     partition_name,
     prune_candidates,
 )
@@ -99,15 +98,6 @@ def test_partition_bounds_are_half_open() -> None:
     creates = [s for s in conn.statements if "CREATE TABLE" in s]
     assert "FROM ('2026-07-01') TO ('2026-08-01')" in creates[0]
     assert "FROM ('2026-08-01') TO ('2026-09-01')" in creates[1]
-
-
-def test_next_maintenance_is_the_first_of_next_month() -> None:
-    assert next_maintenance_at(now=datetime(2026, 7, 15, 12, 0, tzinfo=UTC)) == datetime(
-        2026, 8, 1, tzinfo=UTC
-    )
-    assert next_maintenance_at(now=datetime(2026, 12, 31, 23, 59, tzinfo=UTC)) == datetime(
-        2027, 1, 1, tzinfo=UTC
-    )
 
 
 def test_prune_candidates_never_includes_the_current_month() -> None:
