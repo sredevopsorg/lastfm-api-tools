@@ -63,8 +63,9 @@ app = FastAPI(title="stub-jellyfin")
 # ---------------------------------------------------------------------- state
 
 
-def _artist(item_id: str, name: str, mbid: str | None, genres: list[str] | None = None,
-            overview: str = "") -> dict[str, Any]:
+def _artist(
+    item_id: str, name: str, mbid: str | None, genres: list[str] | None = None, overview: str = ""
+) -> dict[str, Any]:
     item: dict[str, Any] = {
         "Id": item_id,
         "Type": "MusicArtist",
@@ -109,7 +110,6 @@ ETAG_COUNTER = {"n": 1}
 # log was not enough: values applied by one test leak into the next, a field then reads
 # as already-correct, and its checkbox is disabled.
 PRISTINE: dict[str, dict[str, Any]] = {}
-
 
 
 # ---------------------------------------------------------------- auth checks
@@ -269,6 +269,7 @@ async def update_item(item_id: str, request: Request) -> Response:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("STUB_PORT", "8096")),
-                log_level="warning")
+    uvicorn.run(
+        app, host="0.0.0.0", port=int(os.environ.get("STUB_PORT", "8096")), log_level="warning"
+    )
     sys.exit(0)
