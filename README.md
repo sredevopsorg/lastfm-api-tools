@@ -85,7 +85,13 @@ own. Put an authenticating proxy in front of it before exposing it anywhere.
 | `GET /api/health` | Liveness. Touches nothing — safe for container health checks. |
 | `GET /api/health/ready` | Readiness. Reports Postgres, Jellyfin and Last.fm independently. |
 | `GET /api/info` | Versions, whether the Jellyfin key can actually write, archive config. |
-| `GET /api/archive/stats` | Stored payload bytes against the Last.fm storage cap, plus partition sizes. |
+| `GET /api/archive/stats` | Payload bytes against the cap, partition sizes, derived counts, archive read metrics. |
+| `GET /api/archive/entities` | Search the derived layer offline: `kind`, `tag`, `search`, paging. |
+| `GET /api/archive/entities/{kind}/{id}` | One derived entity with its tags, and similar artists for an artist. |
+| `GET /api/archive/tags` | Every tag across the archive with how many distinct entities carry it. |
+| `GET /api/archive/aliases` | Last.fm autocorrect corrections. |
+| `POST /api/archive/reindex` | Rebuild the derived layer. **`dry_run` defaults to true** over HTTP. |
+| `GET /api/archive/diagnose` | What is archived and what the derivation cannot use. |
 | `GET /api/libraries` | Music libraries only (`CollectionType=music`). |
 | `GET /api/items` | Browse artists, albums or songs; `search`, paging, `missing_metadata`. |
 | `GET /api/items/{id}/state` | The full writable field set for one item, plus `etag` and lock flags. |

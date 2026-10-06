@@ -7,7 +7,8 @@ derivation makes of it.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from collections.abc import Sequence
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Body, Depends, Query
 from pydantic import BaseModel, Field
@@ -38,7 +39,14 @@ router = APIRouter(prefix="/archive", tags=["archive"])
 
 EntityKind = Literal["artist", "album", "track"]
 
-_ENTITY_MODELS = {
+# The three tables do not share a column set, which is why the per-kind branches
+# below exist rather than one uniform attribute read. LastfmAlbum in particular has
+# no `overview` (album getInfo carries no wiki), so reading it blindly raises
+# AttributeError at runtime -- the type checker catches exactly that.
+EntityRow = LastfmArtist | LastfmAlbum | LastfmTrack
+EntityModel = type[LastfmArtist] | type[LastfmAlbum] | type[LastfmTrack]
+
+_ENTITY_MODELS: dict[EntityKind, EntityModel] = {
     "artist": LastfmArtist,
     "album": LastfmAlbum,
     "track": LastfmTrack,
@@ -88,7 +96,7 @@ async def archive_entities(
         stmt = stmt.where(model.id.in_(subquery))
 
     total = int(await session.scalar(select(func.count()).select_from(stmt.subquery())) or 0)
-    rows = (
+    fetched = (
         (
             await session.execute(
                 stmt.order_by(model.name).offset((page - 1) * page_size).limit(page_size)
@@ -99,7 +107,7 @@ async def archive_entities(
     )
 
     return {
-        "items": [_entity_summary(kind, row) for row in rows],
+        "items": [_entity_summary(kind, row) for row in _as_entity_rows(fetched)],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -152,9 +160,9 @@ async def archive_entity(
             for peer in peers
         ]
 
+    entity = _as_entity_rows([row])[0]
     return {
-        **_entity_summary(kind, row),
-        "overview": row.overview,
+        **_entity_summary(kind, entity),
         "tags": [
             {
                 "name": edge.tag_name,
@@ -260,7 +268,18 @@ async def archive_diagnose(
     return await describe_archive(settings)
 
 
-def _entity_summary(kind: str, row: Any) -> dict[str, Any]:
+def _as_entity_rows(rows: Sequence[Any]) -> list[EntityRow]:
+    """Narrow rows whose model was selected by ``kind``.
+
+    SQLAlchemy cannot express "the row type depends on a runtime string" from a
+    union of model classes, so the narrowing is stated once here instead of being
+    re-derived at every call site.
+    """
+    return [cast(EntityRow, row) for row in rows]
+
+
+def _entity_summary(kind: EntityKind, row: EntityRow) -> dict[str, Any]:
+    """The fields every derived entity has, in one shape."""
     return {
         "id": row.id,
         "identity": row.identity,
@@ -270,19 +289,31 @@ def _entity_summary(kind: str, row: Any) -> dict[str, Any]:
         "url": row.url,
         "listeners": row.listeners,
         "playcount": row.playcount,
+        "overview": overview_of(row),
         "tags": [entry.get("name") for entry in (row.tags or []) if isinstance(entry, dict)],
         "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
         "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
         "latest_response_id": row.latest_response_id,
-        "extra": _extra_for(kind, row),
+        "extra": _extra_for(row),
     }
 
 
-def _extra_for(kind: str, row: Any) -> dict[str, Any]:
+def overview_of(row: EntityRow) -> str | None:
+    """Album getInfo carries no wiki, so ``LastfmAlbum`` has no overview column.
+
+    Reading it blindly raises AttributeError for albums, which is a 500 rather than
+    a missing field. ``isinstance`` keeps that decision visible and type-checked.
+    """
+    if isinstance(row, (LastfmArtist, LastfmTrack)):
+        return row.overview
+    return None
+
+
+def _extra_for(row: EntityRow) -> dict[str, Any]:
     """Kind-specific fields, so one response shape covers all three tables."""
-    if kind == "artist":
+    if isinstance(row, LastfmArtist):
         return {"stats": row.stats, "bio_published": row.bio_published}
-    if kind == "album":
+    if isinstance(row, LastfmAlbum):
         return {
             "production_year": row.production_year,
             "releasedate": row.releasedate,
