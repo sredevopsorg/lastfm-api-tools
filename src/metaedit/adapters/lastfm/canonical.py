@@ -25,14 +25,36 @@ from typing import Any
 IGNORED_PARAMS = frozenset({"api_key", "format", "callback", "api_sig", "sk"})
 
 
-def _normalise_text(value: str) -> str:
+def normalize_name(value: str | None) -> str:
     """NFC, collapse internal whitespace, strip. Case is preserved.
 
     Last.fm treats artist names case-insensitively for matching but echoes back
-    the canonical spelling; lowercasing here would make two genuinely different
-    requests collide, so the raw case is kept in the request identity.
+    the canonical spelling, so folding case here would merge entities that the raw
+    layer keeps distinct. Shared deliberately between request identity and the
+    derived layer's name keys, so both agree on what "the same name" means.
     """
+    if not value:
+        return ""
     return " ".join(unicodedata.normalize("NFC", value).split())
+
+
+# Kept as the internal spelling; the public name is normalize_name.
+_normalise_text = normalize_name
+
+
+def normalize_tag(value: str | None) -> str:
+    """Canonical form of a *tag*: NFC, case-folded, whitespace collapsed.
+
+    Tags are deduplicated case-insensitively, which is why this differs from
+    ``normalize_name``. The same tag arrives as "Pop", "pop" and "POP" across
+    responses, and ``lastfm_tag_edge`` is unique on ``(entity, tag_name_norm)`` --
+    so without folding, one logical tag would attempt several rows that the
+    database would then reject. ``str.casefold`` is used rather than ``lower`` so
+    non-ASCII case pairs (``ß``/``ss``, ``İ``) fold too.
+    """
+    if not value:
+        return ""
+    return " ".join(unicodedata.normalize("NFC", value).casefold().split())
 
 
 def _normalise_value(value: Any) -> Any:
