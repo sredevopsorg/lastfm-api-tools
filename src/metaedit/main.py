@@ -73,7 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="metaedit",
         description=DESCRIPTION,
-        version="0.1.0",
+        version="0.0.1",
         lifespan=lifespan,
     )
     app.state.settings = settings

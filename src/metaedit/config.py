@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # ---- Last.fm ---------------------------------------------------------
     lastfm_api_key: SecretStr = Field(default=SecretStr(""), alias="LASTFM_API_KEY")
     lastfm_api_root: str = LASTFM_API_ROOT
-    lastfm_user_agent: str = "metaedit/0.1.0 (+https://github.com/metaedit)"
+    lastfm_user_agent: str = "metaedit/0.0.1 (+https://github.com/sredevopsorg/lastfm-api-tools)"
     lastfm_timeout_s: float = 10.0
     lastfm_max_rps: float = 4.0
     lastfm_burst: int = 8
