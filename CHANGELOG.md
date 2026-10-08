@@ -9,7 +9,7 @@ The version is `0.x`, which by SemVer means the interface may still change betwe
 releases. The metadata *contract* is the exception: what is written to Jellyfin is
 specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable.
 
-## [Unreleased]
+## [0.2.0] - 2026-10-08
 
 ### Added
 
@@ -580,7 +580,8 @@ recorded because the *class* of mistake is more instructive than the instance.
 - The Last.fm Terms of Service cap stored Last.fm Data at 100 MB. Usage is measured and
   shown; nothing is deleted automatically, and reaching the cap refuses new writes instead.
 
-[Unreleased]: https://github.com/sredevopsorg/metaedit/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sredevopsorg/metaedit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sredevopsorg/metaedit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.1.0
 [0.0.5]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.5
 [0.0.4]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.4

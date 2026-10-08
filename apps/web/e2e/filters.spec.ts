@@ -162,6 +162,13 @@ test('the selection is cleared when a facet changes, because it feeds a write', 
 }) => {
   // Selecting across *pages* is the point of paging; carrying a selection into a different
   // result set is how a batch would write to items the operator filtered away.
+  //
+  // Asserted as a transition -- "1 selected" becomes "0 selected" -- rather than as the
+  // absence of a string. The first version checked `toHaveCount(0)` on `'0 selected'`,
+  // which is text that never renders while a selection exists, so it passed whatever the
+  // screen did and would have passed with the clearing removed entirely. A test that cannot
+  // fail is not verification, and this one was found by failing on a later run for an
+  // unrelated-looking reason.
   await page.goto('/')
   await expect(page.getByRole('link', { name: 'Filler Artist 001' })).toBeVisible({
     timeout: 15_000,
@@ -172,8 +179,10 @@ test('the selection is cleared when a facet changes, because it feeds a write', 
   await page.getByLabel('Exclusion pattern').first().fill('*Filler*')
   await page.getByRole('button', { name: 'Add pattern' }).first().click()
 
-  await expect(page.getByText('0 selected')).toHaveCount(0)
-  await expect(page.getByText(/1 selected/)).toHaveCount(0)
+  // The count itself has to change. `selectionKey` includes the patterns, so adding one
+  // changes the query and the effect clears the selection.
+  await expect(page.getByText('0 selected')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText('1 selected')).toHaveCount(0)
 })
 
 test('the album facet is not offered for an artist library, which the server would refuse', async ({
