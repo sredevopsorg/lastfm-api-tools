@@ -440,6 +440,19 @@ export interface paths {
          *     `sort` is validated against an allow-list rather than passed through. Live-verified
          *     on 12.2.0: an unrecognised `sortBy` is accepted and *silently ignored*, so a
          *     pass-through would let the UI present items in one order while claiming another.
+         *
+         *     Three kinds of narrowing, and the difference matters to whoever reads `total`:
+         *
+         *     * `artist_ids`/`album_ids` -- Jellyfin's own parameters. Exact, free, and `total`
+         *       accounts for them. They union within a parameter and intersect across them.
+         *     * `has_overview`/`year` -- also Jellyfin's, also free.
+         *     * `missing`/`exclude` -- Jellyfin cannot express either, so both cost a scan over the
+         *       items, and the response says what that scan covered.
+         *
+         *     Every one of these arrives from a hand-editable URL, so the ids are shape-checked
+         *     before they are sent. Jellyfin discards a list it cannot parse *entirely* and answers
+         *     with the unfiltered library, so an unchecked id would silently widen this query
+         *     rather than narrow it -- see `domain.identifiers`.
          */
         get: operations["items_api_items_get"];
         put?: never;
@@ -2132,6 +2145,11 @@ export interface components {
          *     an unfiltered total above a filtered table for as long as it did.
          */
         ScanInfo: {
+            /**
+             * Excluded
+             * @default 0
+             */
+            excluded: number;
             /** Limit */
             limit: number;
             /** Matched */
@@ -2794,6 +2812,12 @@ export interface operations {
                 year?: number | null;
                 /** @description only items lacking any of these: genres, provider_ids, overview, tags. Jellyfin cannot express this for music, so it requires a scan and the response reports what the scan covered under `scan`. Aspects that do not apply to the media type are ignored rather than matching everything. */
                 missing?: ("genres" | "provider_ids" | "overview" | "tags")[] | null;
+                /** @description only items credited to these artists. Jellyfin's own filter, so `total` reflects it and no scan is needed. Narrow `album` and `song`, not `artist`: Jellyfin answers an artist query with zero rather than ignoring it, which is refused here instead of returned. */
+                artist_ids?: string[] | null;
+                /** @description only songs on these albums. Jellyfin's own filter. Narrow `song` only, for the same reason as `artist_ids`. */
+                album_ids?: string[] | null;
+                /** @description case-insensitive glob patterns (`*`, `?`); an item whose name, album or album artist matches any of them is dropped. Literal -- `live` matches `live` only, and `*live*` is what matches a substring. Jellyfin has no parameter for this, so it requires a scan, reported under `scan`. */
+                exclude?: string[] | null;
             };
             header?: never;
             path?: never;

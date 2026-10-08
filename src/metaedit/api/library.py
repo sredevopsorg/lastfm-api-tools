@@ -20,6 +20,7 @@ from metaedit.domain.browse import (
     DEFAULT_SORT,
     SortKey,
     SortOrder,
+    facet_filters,
     jellyfin_sort_by,
 )
 from metaedit.domain.browse_filters import (
@@ -29,7 +30,10 @@ from metaedit.domain.browse_filters import (
     is_missing,
     normalise_aspects,
 )
+from metaedit.domain.exclusion import compile_patterns, is_excluded
+from metaedit.domain.identifiers import clean_item_ids
 from metaedit.domain.snapshot import NormalizedItem, from_dto
+from metaedit.service.labels import labels_from_summary
 from metaedit.service.planning import ITEM_KIND_BY_QUERY, item_kind_for
 
 router = APIRouter(tags=["library"])
@@ -84,6 +88,13 @@ class ScanInfo(BaseModel):
 
     scanned: int
     matched: int
+    # Items a pattern dropped. Reported separately from `scanned - matched` because with
+    # both filters active that difference conflates two reasons, and "38 missing genres"
+    # and "38 excluded by a pattern" are different facts about the library.
+    #
+    # Exclusion is evaluated *before* the aspect test, so `excluded` and `matched` are
+    # disjoint and an item can never be counted in both.
+    excluded: int = 0
     # The scan stopped at the cap, so `matched` is a lower bound and `total` is `matched`
     # over an incomplete set. The UI must say so rather than present either as complete.
     truncated: bool
@@ -164,19 +175,71 @@ async def items(
             )
         ),
     ] = None,
+    artist_ids: Annotated[
+        list[str] | None,
+        Query(
+            description=(
+                "only items credited to these artists. Jellyfin's own filter, so `total` "
+                "reflects it and no scan is needed. Narrow `album` and `song`, not "
+                "`artist`: Jellyfin answers an artist query with zero rather than "
+                "ignoring it, which is refused here instead of returned."
+            )
+        ),
+    ] = None,
+    album_ids: Annotated[
+        list[str] | None,
+        Query(
+            description=(
+                "only songs on these albums. Jellyfin's own filter. Narrow `song` only, "
+                "for the same reason as `artist_ids`."
+            )
+        ),
+    ] = None,
+    exclude: Annotated[
+        list[str] | None,
+        Query(
+            description=(
+                "case-insensitive glob patterns (`*`, `?`); an item whose name, album or "
+                "album artist matches any of them is dropped. Literal -- `live` matches "
+                "`live` only, and `*live*` is what matches a substring. Jellyfin has no "
+                "parameter for this, so it requires a scan, reported under `scan`."
+            )
+        ),
+    ] = None,
 ) -> ItemSummaryPage:
     """Browse one media type, ordered and narrowed.
 
     `sort` is validated against an allow-list rather than passed through. Live-verified
     on 12.2.0: an unrecognised `sortBy` is accepted and *silently ignored*, so a
     pass-through would let the UI present items in one order while claiming another.
+
+    Three kinds of narrowing, and the difference matters to whoever reads `total`:
+
+    * `artist_ids`/`album_ids` -- Jellyfin's own parameters. Exact, free, and `total`
+      accounts for them. They union within a parameter and intersect across them.
+    * `has_overview`/`year` -- also Jellyfin's, also free.
+    * `missing`/`exclude` -- Jellyfin cannot express either, so both cost a scan over the
+      items, and the response says what that scan covered.
+
+    Every one of these arrives from a hand-editable URL, so the ids are shape-checked
+    before they are sent. Jellyfin discards a list it cannot parse *entirely* and answers
+    with the unfiltered library, so an unchecked id would silently widen this query
+    rather than narrow it -- see `domain.identifiers`.
     """
     item_kind = _KIND_MAP[kind]
     sort_by, sort_order = jellyfin_sort_by(sort, order)
     filters = _server_filters(has_overview=has_overview, year=year)
+    filters.update(
+        facet_filters(
+            kind,
+            artist_ids=clean_item_ids(artist_ids, field="artist_ids"),
+            album_ids=clean_item_ids(album_ids, field="album_ids"),
+        )
+    )
 
     aspects = normalise_aspects(item_kind, frozenset(missing or ()))
-    if not aspects:
+    patterns = compile_patterns(exclude)
+    if not aspects and not patterns:
         result = await client.items(
             kind=item_kind,
             parent_id=parent_id,
@@ -196,11 +259,12 @@ async def items(
             order=order,
         )
 
-    page, scan = await _scan_for_missing(
+    page, scan = await _scan_filtered(
         client,
         kind=kind,
         item_kind=item_kind,
         aspects=aspects,
+        patterns=patterns,
         parent_id=parent_id,
         search=search,
         start_index=start_index,
@@ -220,12 +284,13 @@ async def items(
     )
 
 
-async def _scan_for_missing(
+async def _scan_filtered(
     client: JellyfinClient,
     *,
     kind: KindParam,
     item_kind: ItemKind,
     aspects: frozenset[str],
+    patterns: tuple[str, ...],
     parent_id: str | None,
     search: str | None,
     start_index: int,
@@ -240,12 +305,17 @@ async def _scan_for_missing(
     filtered the one page it had fetched, and the header above it printed the
     unfiltered total, so the two disagreed and nothing said so.
 
+    Both filters share one pass because both need the same read. Exclusion is applied
+    first and counted separately, so `excluded` and `matched` are disjoint and the report
+    can name either without double-counting an item.
+
     The scan reads in pages and stops at ``MAX_SCAN_ITEMS``. When it stops early the
     result is a lower bound and ``ScanInfo.truncated`` says so -- silently returning a
     short list would be the same defect in a new place.
     """
     matched: list[ItemSummary] = []
     scanned = 0
+    excluded = 0
     probe = 0
     truncated = True
     cap = _scan_cap()
@@ -266,8 +336,17 @@ async def _scan_for_missing(
         for dto in batch.Items:
             summary = _summary(dto, kind)
             scanned += 1
-            if is_missing(item_kind, aspects, summary):
-                matched.append(summary)
+            if patterns and is_excluded(labels_from_summary(summary), patterns):
+                excluded += 1
+                continue
+            # `is_missing` is not the keep test: with an empty aspect set it answers
+            # False for everything, because nothing is missing from a filter that asks
+            # for nothing. The keep test is "no aspect was requested, or this item
+            # satisfies the ones that were" -- rewriting this as a bare `is_missing`
+            # made exclusion-only scans match nothing at all.
+            if aspects and not is_missing(item_kind, aspects, summary):
+                continue
+            matched.append(summary)
         probe += len(batch.Items)
         if probe >= (batch.TotalRecordCount or 0):
             truncated = False
@@ -285,10 +364,20 @@ async def _scan_for_missing(
             total=len(matched),
             start_index=start_index,
             page_size=page_size,
+            # Placeholders the caller overwrites with what the request asked for. The
+            # fields are required, so they cannot be omitted -- but nothing here knows the
+            # requested sort, and reporting this module's default as if it were the
+            # server's answer is the kind of claim these fields exist to prevent.
             sort=DEFAULT_SORT,
             order=DEFAULT_ORDER,
         ),
-        ScanInfo(scanned=scanned, matched=len(matched), truncated=truncated, limit=cap),
+        ScanInfo(
+            scanned=scanned,
+            matched=len(matched),
+            excluded=excluded,
+            truncated=truncated,
+            limit=cap,
+        ),
     )
 
 
