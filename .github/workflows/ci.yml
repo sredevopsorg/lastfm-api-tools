@@ -119,8 +119,12 @@ jobs:
       - run: uv sync --extra dev --frozen
       # Kept as its own job so a Jellyfin spec change is unmistakable in the
       # checks list rather than buried in a test summary.
+      #
+      # No `-q` for the same reason as the test step in the `python` job: `addopts`
+      # already sets one, and a second suppresses the summary line, so a green run
+      # would not say how many contract tests it actually checked.
       - name: Jellyfin OpenAPI contract
-        run: uv run pytest tests/contract -q
+        run: uv run pytest tests/contract
 
   web:
     name: SPA typecheck and build
