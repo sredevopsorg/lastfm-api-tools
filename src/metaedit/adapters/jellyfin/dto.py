@@ -142,6 +142,30 @@ class VirtualFolderInfo(BaseModel):
     LibraryOptions: dict[str, Any] | None = None
 
 
+class GenreDto(BaseModel):
+    """A genre entity, as ``GET /Genres`` returns it.
+
+    Tolerant on purpose. Live-verified on 12.2.0 that the endpoint returns entities
+    carrying ``Name`` and ``Id``, but Jellyfin's genre payloads also include a ``Type`` and
+    display hints this application has no use for, so unknown keys are ignored rather than
+    modelled -- a stricter DTO here would break on a server that added a field.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    Id: str | None = None
+    Name: str | None = None
+    Type: str | None = None
+
+
+class GenreQueryResult(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    Items: list[GenreDto] = Field(default_factory=list)
+    TotalRecordCount: int = 0
+    StartIndex: int | None = None
+
+
 class UserPolicy(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

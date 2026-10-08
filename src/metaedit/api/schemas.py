@@ -410,6 +410,32 @@ class BulkJobSummary(BaseModel):
     applied: bool
 
 
+class RemovalJobSummary(BulkJobSummary):
+    """A reviewed removal, which additionally knows *what* it would remove.
+
+    A subclass rather than a reuse of ``BulkJobSummary``: the extra field is what makes the
+    list useful -- "which genre was this batch about" is the first thing an operator asks
+    when deciding whether to apply it. Returning the service's raw dict instead would have
+    had the field silently dropped by the parent response model, which is exactly the class
+    of drift these models exist to prevent.
+    """
+
+    removing: str | None = None
+
+
+class RemovalJobListResponse(BaseModel):
+    jobs: list[RemovalJobSummary]
+    count: int
+
+
+class GenreVocabularyResponse(BaseModel):
+    """The genre values the library actually uses."""
+
+    genres: list[str]
+    count: int
+    note: str
+
+
 class BulkJobListResponse(BaseModel):
     jobs: list[BulkJobSummary]
     count: int

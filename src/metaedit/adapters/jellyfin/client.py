@@ -18,6 +18,8 @@ import structlog
 from metaedit.adapters.jellyfin.dto import (
     BaseItemDto,
     BaseItemDtoQueryResult,
+    GenreDto,
+    GenreQueryResult,
     ItemKind,
     MetadataEditorInfo,
     SystemInfoPublic,
@@ -496,6 +498,39 @@ class JellyfinClient:
     async def metadata_editor_info(self, item_id: str) -> MetadataEditorInfo:
         payload = await self._get_json(f"/Items/{item_id}/MetadataEditor")
         return MetadataEditorInfo.model_validate(payload)
+
+    async def genres(
+        self,
+        *,
+        item_kind: ItemKind = "MusicArtist",
+        user_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[GenreDto]:
+        """The genre entities Jellyfin knows about for one media type.
+
+        Live-verified on 12.2.0: ``/Genres`` answers with the same list the server's own
+        genre filter offers (39 entities for this library's artists), which is why the UI
+        reads it rather than scanning items to build a vocabulary. A scanned vocabulary
+        would be a second opinion that could disagree with the filter the operator sees.
+
+        ``item_kind`` is passed as ``includeItemTypes`` because the set differs per media
+        type -- an album-only genre is not an artist genre. Omitting it returned every
+        genre regardless, which is not the question this answers.
+        """
+        params: dict[str, Any] = {
+            "includeItemTypes": item_kind,
+            "userId": user_id or await self.user_id(),
+            "sortBy": "SortName",
+            "sortOrder": "Ascending",
+        }
+        payload = await self._get_json("/Genres", params)
+        # The endpoint answers either with a query-result envelope or a bare array,
+        # depending on the server's version and query. Live-verified that 12.2.0 uses the
+        # envelope; the array form is tolerated because a genre list is not worth failing
+        # a request over, and the DTO ignores keys it does not know.
+        if isinstance(payload, list):
+            return [GenreDto.model_validate(item) for item in payload[:limit]]
+        return list(GenreQueryResult.model_validate(payload).Items[:limit])
 
     # ------------------------------------------------------------------ write
 

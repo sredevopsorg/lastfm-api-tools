@@ -2169,6 +2169,172 @@
         "title": "GenreBlacklistUpdate",
         "type": "object"
       },
+      "GenreRemovalApplyRequest": {
+        "properties": {
+          "confirm": {
+            "default": false,
+            "description": "must be true",
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "job_id": {
+            "description": "from a /bulk/remove-genre/diff run",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "selections": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "per-item fields, keyed by item id. An item absent from the map writes nothing, so an unreviewed item is a no-op.",
+            "title": "Selections"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "GenreRemovalApplyRequest",
+        "type": "object"
+      },
+      "GenreRemovalRequest": {
+        "description": "The value to remove, and where.",
+        "properties": {
+          "decompose": {
+            "default": false,
+            "description": "also remove matching parts of a packed value ('Rock, Reggae' with genre 'Reggae' becomes 'Rock'). Off by default: it is the destructive reading of a value that may be one genre whose name contains a separator.",
+            "title": "Decompose",
+            "type": "boolean"
+          },
+          "fields": {
+            "description": "which arrays to remove from. Both are written by this application.",
+            "items": {
+              "enum": [
+                "Genres",
+                "Tags"
+              ],
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "genre": {
+            "description": "the genre value to remove. Matched exactly and case-insensitively; a blank value is refused rather than treated as a wildcard.",
+            "title": "Genre",
+            "type": "string"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/GenreRemovalSelection",
+            "default": {
+              "kind": "artist",
+              "limit": 100
+            }
+          }
+        },
+        "required": [
+          "genre"
+        ],
+        "title": "GenreRemovalRequest",
+        "type": "object"
+      },
+      "GenreRemovalSelection": {
+        "description": "Which items to look in.\n\nNo `missing` filter here, unlike `BulkSelection`: this tool selects by *having* a\ngenre, which Jellyfin can express natively and cheaply, rather than by lacking\nsomething, which it cannot.",
+        "properties": {
+          "ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "explicit item ids, if known",
+            "title": "Ids"
+          },
+          "kind": {
+            "default": "artist",
+            "enum": [
+              "artist",
+              "album",
+              "song"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "default": 100,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
+          }
+        },
+        "title": "GenreRemovalSelection",
+        "type": "object"
+      },
+      "GenreVocabularyResponse": {
+        "description": "The genre values the library actually uses.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "genres",
+          "count",
+          "note"
+        ],
+        "title": "GenreVocabularyResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3234,6 +3400,82 @@
         "title": "ReindexResponse",
         "type": "object"
       },
+      "RemovalJobListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/RemovalJobSummary"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs",
+          "count"
+        ],
+        "title": "RemovalJobListResponse",
+        "type": "object"
+      },
+      "RemovalJobSummary": {
+        "description": "A reviewed removal, which additionally knows *what* it would remove.\n\nA subclass rather than a reuse of ``BulkJobSummary``: the extra field is what makes the\nlist useful -- \"which genre was this batch about\" is the first thing an operator asks\nwhen deciding whether to apply it. Returning the service's raw dict instead would have\nhad the field silently dropped by the parent response model, which is exactly the class\nof drift these models exist to prevent.",
+        "properties": {
+          "applicable": {
+            "title": "Applicable",
+            "type": "integer"
+          },
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "removing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removing"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "batch_id",
+          "items",
+          "applicable",
+          "skipped",
+          "created_at",
+          "applied"
+        ],
+        "title": "RemovalJobSummary",
+        "type": "object"
+      },
       "ScanInfo": {
         "description": "What a filter that required reading items actually read.\n\nA filtered count is only meaningful next to the number it was drawn from. Without\nthis, \"38 items missing genres\" is indistinguishable from \"38 in the first 200\",\nand silence about the difference is how the previous implementation managed to print\nan unfiltered total above a filtered table for as long as it did.",
         "properties": {
@@ -4032,6 +4274,28 @@
         ]
       }
     },
+    "/api/bulk/genres": {
+      "get": {
+        "description": "The genre vocabulary this library actually uses.\n\nRead from Jellyfin's genre entities rather than by scanning items: it is the same list\nthe server's own genre filter offers, so what the operator picks here is what they\nwould pick there. Read-only.",
+        "operationId": "library_genres_api_bulk_genres_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenreVocabularyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Library Genres",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
     "/api/bulk/jobs": {
       "get": {
         "description": "Reviewed diffs still available to apply, newest last.\n\nExposed because \"which batch am I about to apply\" should be answerable before an\napply, not discovered afterwards.",
@@ -4049,6 +4313,176 @@
           }
         },
         "summary": "List Jobs",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/bulk/remove-genre/apply": {
+      "post": {
+        "description": "Apply a reviewed removal, streaming progress and isolating failures per item.\n\n``confirm`` must be true and the job must exist, so a removal is never the first\nrequest of a session. Every write is snapshotted and shares the job's ``batch_id``,\nso the whole run is undoable through ``/{batch_id}/revert``.",
+        "operationId": "remove_genre_apply_api_bulk_remove_genre_apply_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenreRemovalApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "applied": "#/components/schemas/BulkAppliedEvent",
+                      "error": "#/components/schemas/BulkErrorEvent",
+                      "failed": "#/components/schemas/BulkFailedEvent",
+                      "item": "#/components/schemas/BulkItemEvent",
+                      "reverted": "#/components/schemas/BulkRevertedEvent",
+                      "summary": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BulkItemEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkAppliedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkRevertedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkErrorEvent"
+                    }
+                  ],
+                  "title": "Response 200 Remove Genre Apply Api Bulk Remove Genre Apply Post"
+                }
+              },
+              "text/event-stream": {}
+            },
+            "description": "Server-Sent Events, one frame per item."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Genre Apply",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/bulk/remove-genre/diff": {
+      "post": {
+        "description": "Find every item carrying a genre, and show what removing it would do.\n\n**Writes nothing.** The job id in the summary is what a later apply must present, so a\nlibrary-wide removal can never be the first thing a session does.\n\nSelection uses Jellyfin's own ``Genres``/``Tags`` filter, which is an exact,\ncase-insensitive, server-side match -- verified live. So the reported count is real\nand there is no scan to truncate.",
+        "operationId": "remove_genre_diff_api_bulk_remove_genre_diff_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenreRemovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "applied": "#/components/schemas/BulkAppliedEvent",
+                      "error": "#/components/schemas/BulkErrorEvent",
+                      "failed": "#/components/schemas/BulkFailedEvent",
+                      "item": "#/components/schemas/BulkItemEvent",
+                      "reverted": "#/components/schemas/BulkRevertedEvent",
+                      "summary": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/BulkItemEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkAppliedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkRevertedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkSummaryEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkErrorEvent"
+                    }
+                  ],
+                  "title": "Response 200 Remove Genre Diff Api Bulk Remove Genre Diff Post"
+                }
+              },
+              "text/event-stream": {}
+            },
+            "description": "Server-Sent Events, one frame per item."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Genre Diff",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/bulk/remove-genre/jobs": {
+      "get": {
+        "description": "Reviewed removals still available to apply.",
+        "operationId": "list_removal_jobs_api_bulk_remove_genre_jobs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovalJobListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Removal Jobs",
         "tags": [
           "bulk"
         ]
