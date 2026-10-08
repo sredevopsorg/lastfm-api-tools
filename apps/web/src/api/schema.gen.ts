@@ -1512,11 +1512,6 @@ export interface components {
         };
         /** ItemSummaryPage */
         ItemSummaryPage: {
-            /**
-             * Filtered Client Side
-             * @default false
-             */
-            filtered_client_side: boolean;
             /** Items */
             items: components["schemas"]["ItemSummary"][];
             /**
@@ -1526,6 +1521,7 @@ export interface components {
             order: "asc" | "desc";
             /** Page Size */
             page_size: number;
+            scan?: components["schemas"]["ScanInfo"] | null;
             /**
              * Sort
              * @enum {string}
@@ -1639,6 +1635,25 @@ export interface components {
             dry_run: boolean;
             /** Duration Ms */
             duration_ms: number;
+        };
+        /**
+         * ScanInfo
+         * @description What a filter that required reading items actually read.
+         *
+         *     A filtered count is only meaningful next to the number it was drawn from. Without
+         *     this, "38 items missing genres" is indistinguishable from "38 in the first 200",
+         *     and silence about the difference is how the previous implementation managed to print
+         *     an unfiltered total above a filtered table for as long as it did.
+         */
+        ScanInfo: {
+            /** Limit */
+            limit: number;
+            /** Matched */
+            matched: number;
+            /** Scanned */
+            scanned: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * SearchAlternativeView
@@ -2155,8 +2170,8 @@ export interface operations {
                 has_overview?: boolean | null;
                 /** @description Jellyfin's own filter: exact production year. */
                 year?: number | null;
-                /** @description only items lacking genres, provider ids or an overview. Jellyfin cannot express this for music, so it filters the fetched page and `total` stays unfiltered -- see `filtered_client_side`. */
-                missing_metadata?: boolean;
+                /** @description only items lacking any of these: genres, provider_ids, overview, tags. Jellyfin cannot express this for music, so it requires a scan and the response reports what the scan covered under `scan`. Aspects that do not apply to the media type are ignored rather than matching everything. */
+                missing?: ("genres" | "provider_ids" | "overview" | "tags")[] | null;
             };
             header?: never;
             path?: never;

@@ -2668,11 +2668,6 @@
       },
       "ItemSummaryPage": {
         "properties": {
-          "filtered_client_side": {
-            "default": false,
-            "title": "Filtered Client Side",
-            "type": "boolean"
-          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/ItemSummary"
@@ -2691,6 +2686,16 @@
           "page_size": {
             "title": "Page Size",
             "type": "integer"
+          },
+          "scan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "sort": {
             "enum": [
@@ -3019,6 +3024,35 @@
           "changes"
         ],
         "title": "ReindexResponse",
+        "type": "object"
+      },
+      "ScanInfo": {
+        "description": "What a filter that required reading items actually read.\n\nA filtered count is only meaningful next to the number it was drawn from. Without\nthis, \"38 items missing genres\" is indistinguishable from \"38 in the first 200\",\nand silence about the difference is how the previous implementation managed to print\nan unfiltered total above a filtered table for as long as it did.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "scanned": {
+            "title": "Scanned",
+            "type": "integer"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scanned",
+          "matched",
+          "truncated",
+          "limit"
+        ],
+        "title": "ScanInfo",
         "type": "object"
       },
       "SearchAlternativeView": {
@@ -4119,15 +4153,30 @@
             }
           },
           {
-            "description": "only items lacking genres, provider ids or an overview. Jellyfin cannot express this for music, so it filters the fetched page and `total` stays unfiltered -- see `filtered_client_side`.",
+            "description": "only items lacking any of these: genres, provider_ids, overview, tags. Jellyfin cannot express this for music, so it requires a scan and the response reports what the scan covered under `scan`. Aspects that do not apply to the media type are ignored rather than matching everything.",
             "in": "query",
-            "name": "missing_metadata",
+            "name": "missing",
             "required": false,
             "schema": {
-              "default": false,
-              "description": "only items lacking genres, provider ids or an overview. Jellyfin cannot express this for music, so it filters the fetched page and `total` stays unfiltered -- see `filtered_client_side`.",
-              "title": "Missing Metadata",
-              "type": "boolean"
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "genres",
+                      "provider_ids",
+                      "overview",
+                      "tags"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only items lacking any of these: genres, provider_ids, overview, tags. Jellyfin cannot express this for music, so it requires a scan and the response reports what the scan covered under `scan`. Aspects that do not apply to the media type are ignored rather than matching everything.",
+              "title": "Missing"
             }
           }
         ],
