@@ -43,6 +43,8 @@ from metaedit.logging import get_logger
 from metaedit.service.apply import ApplyOutcome, apply_plan, revert_snapshot
 from metaedit.service.planning import (
     ENTITY_KIND_BY_ITEM_KIND,
+    ITEM_KIND_BY_QUERY,
+    QUERY_KINDS,
     build_best_plan,
 )
 
@@ -52,11 +54,10 @@ log = get_logger(__name__)
 # mis-specified query, and the operator should narrow it deliberately.
 MAX_BATCH_ITEMS = 500
 
-# Browse vocabulary -> Jellyfin media type, derived from the service layer's mapping so
-# the two cannot disagree about what "artist" means.
-ITEM_KIND_BY_QUERY: dict[str, ItemKind] = {
-    query: item_kind for item_kind, query in ENTITY_KIND_BY_ITEM_KIND.items()
-}
+# The browse vocabulary is defined in the planning service, next to the archive map it is
+# deliberately different from. Re-exported here because this module's callers already
+# import from it.
+__all__ = ["ITEM_KIND_BY_QUERY", "MAX_BATCH_ITEMS", "QUERY_KINDS"]
 
 
 @dataclass(frozen=True, slots=True)

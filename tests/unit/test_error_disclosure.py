@@ -13,7 +13,7 @@ error, a transport error, a plain bug -- has a ``str()`` that describes our inte
 from __future__ import annotations
 
 import pytest
-from structlog.testing import capture_logs
+from tests.support.logs import captured_failure_logs
 
 from metaedit.domain.diff import SelectionError
 from metaedit.domain.errors import (
@@ -53,9 +53,9 @@ def test_an_unexpected_failure_is_reduced_to_a_reference() -> None:
     assert "Reference" in text
 
 
-def test_the_detail_is_logged_under_the_reference_the_user_is_shown() -> None:
+def test_the_detail_is_logged_under_the_reference_the_user_is_shown(caplog) -> None:  # type: ignore[no-untyped-def]
     """Diverting the detail is only defensible if it stays findable."""
-    with capture_logs() as logs:
+    with captured_failure_logs(caplog) as logs:
         text = public_error_text(RuntimeError(INTERNAL))
 
     assert any(entry.get("reference") and entry["reference"] in text for entry in logs), logs
@@ -70,9 +70,9 @@ def test_each_failure_gets_its_own_reference() -> None:
     assert first != second
 
 
-def test_a_curated_failure_is_not_logged_as_a_fault() -> None:
+def test_a_curated_failure_is_not_logged_as_a_fault(caplog) -> None:  # type: ignore[no-untyped-def]
     """An expected failure is a normal outcome; logging it as a fault would be noise."""
-    with capture_logs() as logs:
+    with captured_failure_logs(caplog) as logs:
         public_error_text(NotFoundError("no such item"))
 
     assert logs == []

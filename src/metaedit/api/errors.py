@@ -13,6 +13,7 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from metaedit.api.serialization import to_jsonable
 from metaedit.domain.errors import MetaeditError
 
 log = structlog.get_logger(__name__)
@@ -29,7 +30,9 @@ def install(app: FastAPI) -> None:
             message=exc.message,
             detail=exc.detail,
         )
-        return JSONResponse(status_code=exc.http_status, content=exc.to_body())
+        # A `datetime` in the detail would otherwise make the error body itself
+        # unserialisable, and the caller would see a bare 500 instead of this error.
+        return JSONResponse(status_code=exc.http_status, content=to_jsonable(exc.to_body()))
 
     @app.exception_handler(httpx.HTTPError)
     async def httpx_error_handler(request: Request, exc: Exception) -> JSONResponse:

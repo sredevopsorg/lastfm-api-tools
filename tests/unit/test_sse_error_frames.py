@@ -23,7 +23,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
-from structlog.testing import capture_logs
+from tests.support.logs import captured_failure_logs
 
 from metaedit.api.bulk import _stream as bulk_stream
 from metaedit.api.harvest import _stream as harvest_stream
@@ -71,14 +71,16 @@ async def test_unexpected_failure_does_not_disclose_internal_detail(
     assert error["message"] != f"(psycopg.OperationalError) {INTERNAL}"
 
 
-@pytest.mark.parametrize(
-    ("stream_name", "expected_code"),
-    [("bulk", "internal_error"), ("harvest", "harvest_failed")],
-)
-async def test_unexpected_failure_keeps_a_reference_and_a_code(
-    stream_name: str, expected_code: str
-) -> None:
-    """The message stays actionable: a reference an operator can find in the log."""
+@pytest.mark.parametrize("stream_name", ["bulk", "harvest"])
+async def test_unexpected_failure_keeps_a_reference_and_a_code(stream_name: str) -> None:
+    """The message stays actionable: a reference an operator can find in the log.
+
+    The code is ``internal_error`` for both streams. It used to be ``harvest_failed`` on
+    the harvest stream, which was a *label for the route* rather than for the failure --
+    the same RuntimeError reported two different codes depending on which endpoint raised
+    it. One code for "a bug we did not anticipate" is the honest answer, and it is now the
+    only one that reaches a client.
+    """
     events = failing(RuntimeError(INTERNAL))
     stream = (
         bulk_stream(events)
@@ -89,17 +91,19 @@ async def test_unexpected_failure_keeps_a_reference_and_a_code(
     body = await collect(stream)
 
     error = next(f for f in frames(body) if f["type"] == "error")
-    assert error["code"] == expected_code
+    assert error["code"] == "internal_error"
     assert "Reference" in error["message"]
+    # Also a field, so a client does not have to parse our prose.
+    assert error["reference"] in error["message"]
 
 
 @pytest.mark.parametrize("stream_name", ["bulk", "harvest"])
 async def test_internal_detail_is_logged_against_the_shown_reference(
-    stream_name: str,
-) -> None:
+    stream_name: str, caplog
+) -> None:  # type: ignore[no-untyped-def]
     """Diverting the detail is only defensible if it lands somewhere findable."""
     events = failing(RuntimeError(INTERNAL))
-    with capture_logs() as logs:
+    with captured_failure_logs(caplog) as logs:
         stream = (
             bulk_stream(events)
             if stream_name == "bulk"

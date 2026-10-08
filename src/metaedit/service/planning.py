@@ -37,6 +37,30 @@ ENTITY_KIND_BY_ITEM_KIND: dict[ItemKind, str] = {
     "Audio": "track",
 }
 
+# Browse vocabulary -> Jellyfin media type.
+#
+# "song", not "track", because that is the word every *query surface* uses: the library
+# browse's `kind` parameter, the bulk and harvest selection bodies, and the SPA's labels.
+# The derived archive layer calls the same entity "track" (`lastfm_track`, `ReindexKind`),
+# which is a different surface with a different reader -- someone writing SQL.
+#
+# The two vocabularies are separate on purpose and that separation is what broke: the bulk
+# selection took its vocabulary from the *archive* side (`SelectionKind` said "song") and
+# its lookup from the *archive* map (`ITEM_KIND_BY_QUERY` said "track"), so every bulk diff
+# over songs was rejected by the service with "unknown selection kind 'song'". Defined here
+# so the query mappings cannot drift apart again.
+QUERY_KIND_BY_ITEM_KIND: dict[ItemKind, str] = {
+    "MusicArtist": "artist",
+    "MusicAlbum": "album",
+    "Audio": "song",
+}
+
+QUERY_KINDS: tuple[str, ...] = tuple(QUERY_KIND_BY_ITEM_KIND.values())
+
+ITEM_KIND_BY_QUERY: dict[str, ItemKind] = {
+    query: item_kind for item_kind, query in QUERY_KIND_BY_ITEM_KIND.items()
+}
+
 MODELS_BY_ENTITY_KIND: dict[str, Any] = {
     "artist": LastfmArtist,
     "album": LastfmAlbum,

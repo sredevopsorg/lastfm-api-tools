@@ -11,6 +11,42 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ## [Unreleased]
 
+### Fixed
+
+**Bulk editing over songs was broken: `unknown selection kind 'song'`.** There are two
+names for the same thing and they are deliberately not interchangeable — the *query*
+vocabulary (`artist` / `album` / `song`) that every human-facing surface uses, and the
+*archive* vocabulary (`artist` / `album` / `track`) that the derived tables and `ReindexKind`
+use, whose reader is someone writing SQL. The bulk selection took its enum from the query
+side and its lookup table from the archive side, so the SPA offered "Songs", the schema
+accepted `"song"`, and the service rejected it every time. Harvest had the identical bug
+through the same shared path. The two mappings now sit next to each other in one module with
+the distinction spelled out, and `test_kind_vocabularies.py` pins the relationship rather
+than the values, so adding a media type means being told about every place that must agree.
+
+**A timestamp anywhere in an error detail turned the error into a 500.** An exception
+handler builds its own response, so `JSONResponse(content=...)` runs plain `json.dumps` and
+not FastAPI's `jsonable_encoder`. `PremiereDate` lives in `NormalizedItem.fields` as a real
+`datetime` (so date comparisons work), that state travels in `ConflictError.current` so a
+stale-`Etag` 409 can show what changed, and the body then failed to serialise — the one
+error whose job is to explain a conflict was the one that could not render. Songs were where
+it surfaced because a song usually carries a `PremiereDate` and an artist usually does not.
+`api/serialization.py` now holds the single definition of "can this go in a response body",
+applied where the body is built. The bug was never a missing conversion; it was conversion
+being remembered at four of five places.
+
+**An unexpected 500 now says something a user can act on.** The body was
+`Unexpected server error.` — nothing to send, nothing to search for. It carries a
+`reference` that appears in the server log, the exception type, the method and path, and
+`retryable`. The reference is also a structured field on SSE error events rather than only
+inside prose, so the SPA can surface it without parsing a sentence that is ours to reword.
+Nothing about the disclosure policy changed: a `MetaeditError` message still passes through,
+and anything else still gets a reference instead of its `str()`.
+
+Also: `harvest` reported an unanticipated failure as `harvest_failed` while `bulk` reported
+`internal_error` for the same `RuntimeError` — a label for the *route* being used as a code
+for the *failure*. Both report `internal_error` now.
+
 ### Changed
 
 **The README is now a landing page; the detail moved into `docs/`.** It had grown to 500

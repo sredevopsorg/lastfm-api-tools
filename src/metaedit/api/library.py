@@ -14,19 +14,18 @@ from pydantic import BaseModel
 from metaedit.adapters.jellyfin.dto import BaseItemDto, ItemKind
 from metaedit.api.deps import JellyfinDep
 from metaedit.domain.snapshot import NormalizedItem, from_dto
-from metaedit.service.planning import item_kind_for
+from metaedit.service.planning import ITEM_KIND_BY_QUERY, item_kind_for
 
 router = APIRouter(tags=["library"])
 
+# The browse vocabulary, spelled once in the service layer so this endpoint, the bulk
+# selection and the harvest selection cannot disagree about what a "song" is. Written
+# out as a Literal rather than left as `str` so the generated SPA types still enumerate
+# it -- a `str` here turns every route's `kind` into an untyped string, which is how the
+# library page's `limit`/`page_size` mistake became possible in the first place.
 KindParam = Literal["artist", "album", "song"]
 
-# The browse vocabulary is the query surface; the media types come from the service
-# layer so there is one definition of which archive kind a Jellyfin type means.
-_KIND_MAP: dict[KindParam, ItemKind] = {
-    "artist": "MusicArtist",
-    "album": "MusicAlbum",
-    "song": "Audio",
-}
+_KIND_MAP: dict[str, ItemKind] = ITEM_KIND_BY_QUERY
 
 
 class ItemSummary(BaseModel):

@@ -5,13 +5,13 @@ on:
     branches: [main]
     paths-ignore:
       - "*.md"
-      - "docs/*"
-      
+      # `docs/**`, not `docs/*`: the single star matches only direct children, so
+      # docs/adr/0001-*.md and docs/design/*.md still triggered a full run.
+      - "docs/**"
   pull_request:
     paths-ignore:
       - "*.md"
-      - "docs/*"
-      
+      - "docs/**"
 
 permissions:
   contents: read
