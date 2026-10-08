@@ -68,8 +68,26 @@ def _client_raising(exc: Exception) -> TestClient:
 
 
 def test_a_song_state_really_does_carry_a_datetime() -> None:
-    """The premise. If this stops holding, the tests below stop testing anything."""
-    assert isinstance(song_state()["fields"]["PremiereDate"], datetime)
+    """The premise. If this stops holding, the tests below stop testing anything.
+
+    Note it is a *pydantic* model that carries the datetime now, not ``fields``.
+    ``fields`` used to hold ``PremiereDate`` as a datetime and no longer does: that
+    representation was reaching a JSONB column and an httpx ``json=`` body, and both
+    raised ``TypeError`` (see the snapshot tests for the guard). ``to_jsonable`` is
+    still required regardless, because a ``BaseItemDto`` really does parse
+    ``PremiereDate`` into a datetime -- that is the value an error detail can carry.
+    """
+    parsed = BaseItemDto.model_validate(SONG_DTO)
+    assert isinstance(parsed.PremiereDate, datetime)
+    assert not isinstance(song_state()["fields"]["PremiereDate"], datetime)
+
+    # The real end-to-end check: that datetime, in an error detail, survives the
+    # handler. `test_a_timestamp_in_an_error_detail_does_not_break_the_error` below
+    # covers the same path with a literal; this pins it to the DTO's own value.
+    conflict = ConflictError("changed underneath us", current={"premiere": parsed.PremiereDate})
+    response = _client_raising(conflict).get("/raise")
+    assert response.status_code == 409
+    assert response.json()["error"]["current"]["premiere"] == "2003-05-16T00:00:00+00:00"
 
 
 @pytest.mark.parametrize(

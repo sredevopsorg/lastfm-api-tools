@@ -147,6 +147,47 @@ def test_to_payload_converts_datetime_to_iso() -> None:
     assert payload["PremiereDate"] == "1995-03-13T00:00:00+00:00"
 
 
+@pytest.mark.parametrize("kind", ["MusicArtist", "MusicAlbum", "Audio"])
+def test_the_write_payload_is_json_encodable(kind: str) -> None:
+    """The payload is sent with ``json=``, so every value must be JSON-encodable.
+
+    Converting only the *changed* fields was the bug: a field carried through
+    from current state kept whatever ``fields`` held, and ``PremiereDate`` is
+    held as a datetime there. Editing anything at all on an item that has a
+    ``PremiereDate`` therefore failed at request-encoding time with the same
+    ``TypeError`` as the snapshot flush.
+    """
+    dto = {
+        "Id": "44444444-4444-4444-4444-444444444444",
+        "Type": kind,
+        "Name": "Dated Item",
+        "PremiereDate": "1992-01-01T03:00:00.0000000Z",
+        "ProductionYear": 1992,
+        "Genres": ["Darkwave"],
+    }
+    item = from_dto(dto, kind)
+
+    # No change touches PremiereDate, so it is carried through untouched -- the
+    # path that was broken.
+    payload = to_payload(item, {"Genres": ["Gothic"]})
+    encoded = json.loads(json.dumps(payload))
+    assert encoded["PremiereDate"] == "1992-01-01T03:00:00+00:00"
+    assert encoded["Genres"] == ["Gothic"]
+    assert encoded["ProductionYear"] == 1992
+
+
+def test_normalisation_converts_premiere_date_on_the_way_in() -> None:
+    """``fields`` must never hold a value that cannot be stored or sent.
+
+    ``_normalize`` is the single door into ``fields``, which is why the
+    conversion belongs there rather than at each of the two destinations.
+    """
+    item = from_dto(DATED_DTO, "MusicArtist")
+    assert item.fields["PremiereDate"] == "1992-01-01T03:00:00+00:00"
+    assert not isinstance(item.fields["PremiereDate"], datetime)
+    assert json.dumps(item.fields)  # the column value is encodable too
+
+
 def test_snapshot_fields_matches_the_payload_field_set() -> None:
     item = from_dto(ARTIST_DTO, "MusicArtist")
     stored = snapshot_fields(item)

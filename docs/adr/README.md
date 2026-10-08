@@ -19,3 +19,4 @@ A record is superseded by a new one (status change), never rewritten.
 | [0011](0011-measure-dont-silently-prune.md) | Measure the ToS cap; never silently delete archive data | Accepted |
 | [0012](0012-read-only-lastfm.md) | Read-only Last.fm usage: API key only, no user auth flow | Accepted |
 | [0013](0013-single-container-and-postgres-18.md) | Single container serving the SPA; Postgres 18 pinned as `18-trixie` | Accepted |
+| [0014](0014-premiere-date-is-a-wire-string.md) | `PremiereDate` is a wire string everywhere outside comparison | Accepted |

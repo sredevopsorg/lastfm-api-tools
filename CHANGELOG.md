@@ -13,16 +13,32 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ### Fixed
 
-**Applying any item with a `PremiereDate` failed with an internal error.** The snapshot
-body is stored in a JSONB column, and `snapshot_fields` passed `PremiereDate` through as
-the `datetime` it is held as in `fields`. JSON has no datetime, so the flush raised
-`TypeError: Object of type datetime is not JSON serializable` — after the change set had
-been reviewed and confirmed, and before anything was written.
+**Editing any item with a `PremiereDate` failed with an internal error.** One wrong
+representation crossed three boundaries, and each fix revealed the next.
 
-Measured on a live library this is not an edge case: **5,916 of 6,583 items** carry a
-`PremiereDate`, including 470 of 502 albums and **5,437 of 5,442 songs**. Artists mostly do
-not (9 of 639), which is why it first appeared as "editing an artist from the third page"
-rather than as "editing anything at all".
+`NormalizedItem.fields` held `PremiereDate` as a `datetime`, and only the fields present in
+`changes` were converted back to an ISO string on the way out. Fields carried through from
+current state were emitted verbatim, which raised
+`TypeError: Object of type datetime is not JSON serializable` at:
+
+1. **the snapshot flush** — the body goes into a JSONB column, and JSON has no datetime.
+   This happened *after* the change set had been reviewed and confirmed and *before*
+   anything was written: an internal error on a write the user had approved.
+2. **the write payload** — the httpx `json=` encoder, on the same unconverted value. Not
+   visible until (1) was fixed, because (1) always failed first.
+3. **the error body** — fixed in v0.0.4, where `as_state()["fields"]` reached
+   `JSONResponse`'s plain `json.dumps`.
+
+Measured on a live library the blast radius is most of it: **5,916 of 6,583 items** carry a
+`PremiereDate` — 470 of 502 albums and **5,437 of 5,442 songs**. Artists mostly do not
+(9 of 639), which is why it surfaced as "editing an artist from the third page" rather than
+as "editing anything at all" — and why albums and songs were near-universally broken.
+
+Fixed at the representation rather than at each destination: `_normalize`, the single door
+into `fields`, now returns the wire form for every field. No path can put a
+non-serialisable value into a JSONB column or an HTTP body. See ADR 0014. One consequence
+worth knowing: `GET /items/{id}/state` returns `PremiereDate` as an ISO string now. That
+was previously a latent 500 for any handler that echoed it.
 
 **An unanticipated failure on one item killed the whole batch.** `apply_job` caught only
 `MetaeditError`. Anything else escaped the per-item loop with the session still dirty, so
@@ -30,6 +46,22 @@ the *next* item's flush raised `PendingRollbackError` and the run stopped with t
 cause buried under a second error. Items are committed independently so that one failure
 does not discard the rest; that guarantee now holds for failures we did not predict as well
 as for the ones we did.
+
+### Notes
+
+**Jellyfin discards the time component of `PremiereDate` on every write.** Verified on
+12.2.0: writing `1987-01-01T03:00:00+00:00` back to an item that already held exactly that
+value returns `1987-01-01T00:00:00+00:00`. The server normalises to midnight and does so
+even for a no-op write.
+
+This means editing any field on an item whose `PremiereDate` has a non-midnight time will
+round that date to midnight. The snapshot records the true pre-write value, so a revert
+restores what was captured — and is itself rounded on the way in. Six artists in the
+reference library are affected, where the time component is a timezone offset, so the date
+itself does not change. Not worked around: the endpoint is a full overwrite (ADR 0003), so
+omitting the field would null it, and refusing every edit to a dated item would make most
+of the library uneditable. Recorded in ADR 0014 because the alternative is a user finding
+it in their own library.
 
 ## [0.0.4] - 2026-10-08
 

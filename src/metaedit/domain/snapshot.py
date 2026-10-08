@@ -222,6 +222,16 @@ def empty_value(field: str) -> Any:
 
 
 def _normalize(field: str, value: Any) -> Any:
+    """Coerce one field's value into the form that goes on the wire.
+
+    The returned value must be JSON-encodable. It is used for two destinations
+    that both reject a ``datetime``: the JSONB column holding the snapshot, and
+    the ``json_body`` of the ``POST /Items/{itemId}`` request. Keeping the
+    conversion here rather than at each destination means there is no path by
+    which a non-serialisable value can reach either one -- which is what went
+    wrong when only the payload's *changed* fields were converted and the fields
+    carried through from current state were not.
+    """
     if field in {"Genres", "Tags", "ProductionLocations", "LockedFields"}:
         return [str(item) for item in (value or [])]
     if field == "Studios":
@@ -241,16 +251,17 @@ def _normalize(field: str, value: Any) -> Any:
     if field == "People":
         return list(value or [])
     if field == "PremiereDate":
-        # Stored as a datetime so comparisons against a local date work, and
-        # converted back on the way out by `_to_wire`.
-        return _as_datetime(value)
+        # Held and compared as a datetime -- that is what makes a date comparison
+        # meaningful and lets the UI reason about it -- but never stored or sent
+        # in that form. `_to_wire` is the single conversion back.
+        return _to_wire(field, _as_datetime(value))
     if field in {"CommunityRating", "CriticRating"}:
         return None if value is None else float(value)
     if field == "ProductionYear":
         return None if value is None else int(value)
     if field == "LockData":
         return bool(value) if value is not None else False
-    return value
+    return _to_wire(field, value)
 
 
 def _to_wire(field: str, value: Any) -> Any:
