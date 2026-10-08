@@ -6,6 +6,7 @@ that ``to_payload`` always emits exactly the media type's field set.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -146,11 +147,106 @@ def test_to_payload_converts_datetime_to_iso() -> None:
     assert payload["PremiereDate"] == "1995-03-13T00:00:00+00:00"
 
 
+@pytest.mark.parametrize("kind", ["MusicArtist", "MusicAlbum", "Audio"])
+def test_the_write_payload_is_json_encodable(kind: str) -> None:
+    """The payload is sent with ``json=``, so every value must be JSON-encodable.
+
+    Converting only the *changed* fields was the bug: a field carried through
+    from current state kept whatever ``fields`` held, and ``PremiereDate`` is
+    held as a datetime there. Editing anything at all on an item that has a
+    ``PremiereDate`` therefore failed at request-encoding time with the same
+    ``TypeError`` as the snapshot flush.
+    """
+    dto = {
+        "Id": "44444444-4444-4444-4444-444444444444",
+        "Type": kind,
+        "Name": "Dated Item",
+        "PremiereDate": "1992-01-01T03:00:00.0000000Z",
+        "ProductionYear": 1992,
+        "Genres": ["Darkwave"],
+    }
+    item = from_dto(dto, kind)
+
+    # No change touches PremiereDate, so it is carried through untouched -- the
+    # path that was broken.
+    payload = to_payload(item, {"Genres": ["Gothic"]})
+    encoded = json.loads(json.dumps(payload))
+    assert encoded["PremiereDate"] == "1992-01-01T03:00:00+00:00"
+    assert encoded["Genres"] == ["Gothic"]
+    assert encoded["ProductionYear"] == 1992
+
+
+def test_normalisation_converts_premiere_date_on_the_way_in() -> None:
+    """``fields`` must never hold a value that cannot be stored or sent.
+
+    ``_normalize`` is the single door into ``fields``, which is why the
+    conversion belongs there rather than at each of the two destinations.
+    """
+    item = from_dto(DATED_DTO, "MusicArtist")
+    assert item.fields["PremiereDate"] == "1992-01-01T03:00:00+00:00"
+    assert not isinstance(item.fields["PremiereDate"], datetime)
+    assert json.dumps(item.fields)  # the column value is encodable too
+
+
 def test_snapshot_fields_matches_the_payload_field_set() -> None:
     item = from_dto(ARTIST_DTO, "MusicArtist")
     stored = snapshot_fields(item)
     assert set(stored).issubset(set(payload_fields("MusicArtist")))
     assert stored["Genres"] == ["Alternative Rock"]
+
+
+DATED_DTO = {
+    **ARTIST_DTO,
+    "PremiereDate": "1992-01-01T03:00:00.0000000Z",
+    "ProductionYear": 1992,
+}
+
+
+def test_snapshot_fields_is_json_serialisable() -> None:
+    """The snapshot body goes into a JSONB column.
+
+    ``json.dumps`` here is the same encoder psycopg uses for a ``jsonb``
+    parameter, so this fails exactly where the database insert would -- a
+    ``datetime`` reaching ``snapshot.fields`` is an ``apply`` that crashes after
+    the plan is reviewed and before anything is written.
+    """
+    captured = json.dumps(snapshot_fields(from_dto(DATED_DTO, "MusicArtist")))
+
+    # PremiereDate is a datetime in `fields` so that comparisons against a local
+    # date are meaningful; that representation must not survive into the column.
+    assert json.loads(captured)["PremiereDate"] == "1992-01-01T03:00:00+00:00"
+
+
+@pytest.mark.parametrize("kind", ["MusicArtist", "MusicAlbum", "Audio"])
+def test_snapshot_body_survives_the_database_round_trip(kind: str) -> None:
+    """Storing then loading a snapshot must reproduce the payload byte for byte.
+
+    This is the property the revert path depends on: the values that come back
+    out of ``snapshot.fields`` are what a revert writes to Jellyfin.
+    """
+    dto = {
+        "Id": "33333333-3333-3333-3333-333333333333",
+        "Type": kind,
+        "Name": "Dated Item",
+        "PremiereDate": "1992-01-01T03:00:00.0000000Z",
+        "ProductionYear": 1992,
+        "Genres": ["Darkwave"],
+    }
+    item = from_dto(dto, kind)
+    original = to_payload(item, {})
+
+    # `json.loads(json.dumps(...))` is what JSONB does: dates become strings.
+    stored = json.loads(json.dumps(snapshot_fields(item)))
+    restored = from_snapshot_row(
+        {
+            "kind": kind,
+            "item_id": item.item_id,
+            "name": item.name,
+            "date_last_saved": item.date_last_saved,
+            "fields": stored,
+        }
+    )
+    assert to_payload(restored, {}) == original
 
 
 def test_snapshot_round_trip_reproduces_the_payload() -> None:
