@@ -174,14 +174,20 @@ def test_every_page_returns_a_distinct_row(client: TestClient, page_size: int) -
 
     This is the shape of the live reproduction, and it does fail when the tiebreaker is
     removed -- but only for the sort keys whose fixture values collide (listeners and
-    playcount), because whether `ORDER BY name` diverges between two offset queries
-    depends on Postgres's plan for the table. With 5 rows it happens to be stable; with
-    the live 109-row table it was not.
+    playcount). For `name`, the 5-row fixture happens to come back in a stable order, so
+    the walk passes with the bug present.
 
-    So this test is kept for what it does prove, and
+    That distinction was checked rather than guessed. Running both orderings against the
+    live 109-row table five times each:
+
+        ORDER BY name       108 distinct, duplicate id 90 in every run
+        ORDER BY name, id   109 distinct, no duplicates in any run
+
+    So the live failure is deterministic on that data -- it is this fixture that is too
+    small to provoke it. The walk is kept for what it proves, and
     `test_generated_sql_always_ends_with_a_unique_tiebreaker` covers the property that
-    does not depend on the planner at all. Relying on the walk alone would have been
-    relying on luck: it passed here with the bug present.
+    does not depend on the data at all. Relying on the walk alone would have been relying
+    on luck: it passed here with the bug present.
     """
     ids = _walk(client, page_size=page_size)
     assert len(ids) == len(set(ids)), f"a row was returned on more than one page: {ids}"

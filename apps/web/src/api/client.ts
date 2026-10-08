@@ -217,10 +217,20 @@ export type ArchiveTagsQuery = NonNullable<
   paths['/api/archive/tags']['get']['parameters']['query']
 >
 
-function queryString(params: Record<string, unknown>): string {
+export function queryString(params: Record<string, unknown>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === '') continue
+    // Arrays become repeated parameters (`?missing=genres&missing=tags`), which is how
+    // FastAPI takes a list. `set` would send one comma-joined value, and the API answers
+    // that with a 422 rather than quietly filtering by nothing -- but a 422 from a filter
+    // that looks applied is exactly the kind of failure worth not creating.
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (entry !== undefined && entry !== null && entry !== '') search.append(key, String(entry))
+      }
+      continue
+    }
     search.set(key, String(value))
   }
   const rendered = search.toString()
