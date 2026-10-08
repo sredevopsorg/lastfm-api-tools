@@ -13,27 +13,35 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ### Fixed
 
-**Internal error text no longer reaches the browser.** Both streaming endpoints ended in a
-catch-all that put `str(exc)` straight into the SSE `error` frame. CodeQL found this
-(`py/stack-trace-exposure`) rather than a test, because the leak was invisible to every
-assertion the suite had: the frames were well-formed, they were simply candid about our
-internals.
+**Internal error text no longer reaches the browser.** CodeQL found this
+(`py/stack-trace-exposure`), and it found it *twice* — which is the interesting part,
+because the second instance was still there after the first fix. Each place that reported
+a failure was answering "is this exception safe to quote?" for itself, and one of them
+answered wrong.
 
-- An unexpected failure now reports a `code` and a short **reference id**. The traceback
-  and the original message go to the server log under that same reference, so a report
-  from a user still leads to the cause.
-- No credential was reachable this way, which was checked rather than assumed: Last.fm's
-  `httpx` failures collapse to a type name before escaping, so the API key in the query
-  string never reached a message; the Jellyfin key travels in a header and its bodies
-  already pass through `_sanitise_body`; and a failing Postgres connection renders with
-  the password masked. What did leak was internal topology — driver names, host and port.
-- Expected failures (`MetaeditError`) keep their own code and message. This was broken
-  too: only `ValidationError` and `NotFoundError` were passed through, so a rejected API
-  key (`LastfmAuthError`) or a reached storage cap (`ArchiveCapReached`) was reported as an
-  indistinguishable internal error.
-- Frame building moved to `api/sse.py`, so the streaming modules share one definition of
-  what is safe to disclose. `domain/errors.py` had promised this all along — "no upstream
-  payload ever reaches a client verbatim" — so this leaked by omission, not by decision.
+- The SSE catch-all put `str(exc)` straight into the `error` frame. An unexpected failure
+  now reports a `code` and a short **reference id**; the traceback goes to the server log
+  under that same reference, so a report from a user still leads to the cause.
+- The same expression appeared a second time in the per-item failure payloads for bulk
+  apply and revert. Both now go through one function.
+- `domain.errors.public_error_text` is that function, and the single definition of what a
+  client may be told. The distinction it draws is **provenance, not severity**: a
+  `MetaeditError` message was written by us for a reader and passes through; anything
+  else gets a reference.
+- **No credential was ever reachable**, which was checked rather than assumed: Last.fm's
+  `httpx` failures collapse to a type name before escaping, so the key in the query string
+  never reached a message; the Jellyfin key travels in a header and its bodies already
+  pass through `_sanitise_body`; and a failing Postgres connection renders with the
+  password masked. What leaked was internal topology — driver names, host and port.
+- `SelectionError` now subclasses `MetaeditError` instead of `ValueError`. It was an
+  expected failure with a person-readable message all along, and being a bare `ValueError`
+  meant the write path had two hierarchies to catch and its HTTP status lived in a handler
+  in another layer. The status (`422`) and code (`invalid_request`) are unchanged, but they
+  now sit next to the failure that causes them, and the per-item failure payload no longer
+  needs to special-case it.
+
+`domain/errors.py` had promised this from the start — "no upstream payload ever reaches a
+client verbatim" — so both leaks were omissions, not decisions.
 
 ## [0.0.1] - 2026-10-08
 

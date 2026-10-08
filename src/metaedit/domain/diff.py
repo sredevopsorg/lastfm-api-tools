@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from metaedit.domain.confidence import Confidence
+from metaedit.domain.errors import MetaeditError
 from metaedit.domain.mapping import Candidate, FieldChange, MappingResult
 from metaedit.domain.snapshot import NormalizedItem, to_payload
 from metaedit.domain.writable import ItemKind, payload_field_set
@@ -33,8 +34,18 @@ from metaedit.domain.writable import ItemKind, payload_field_set
 Summary = dict[str, Any]
 
 
-class SelectionError(ValueError):
-    """A selection names something the plan does not permit."""
+class SelectionError(MetaeditError):
+    """A selection names something the plan does not permit.
+
+    An expected failure with a message written for a person -- which is what
+    ``MetaeditError`` is. It was a bare ``ValueError``, so the write path had two
+    hierarchies to reason about and this failure's HTTP status lived in a handler in
+    another layer. Carrying ``code`` and ``http_status`` keeps the decision next to the
+    failure that makes it.
+    """
+
+    code = "invalid_request"
+    http_status = 422
 
 
 @dataclass(frozen=True, slots=True)

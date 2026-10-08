@@ -34,8 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from metaedit.adapters.jellyfin.client import JellyfinClient
 from metaedit.db.models import Snapshot
 from metaedit.domain.confidence import Confidence
-from metaedit.domain.diff import DiffPlan, SelectionError
-from metaedit.domain.errors import MetaeditError, ValidationError
+from metaedit.domain.diff import DiffPlan
+from metaedit.domain.errors import MetaeditError, ValidationError, public_error_text
 from metaedit.domain.mapping import Candidate, MappingResult, Mode
 from metaedit.domain.tags import TagPolicy
 from metaedit.domain.writable import ItemKind
@@ -339,17 +339,19 @@ async def apply_job(
                 requested=requested_for(item),
                 batch_id=job.batch_id,
             )
-        except (MetaeditError, SelectionError) as exc:
+        except MetaeditError as exc:
             # Roll back only this item's work, leaving prior items committed.
             await session.rollback()
-            failed.append({"item_id": item.item_id, "name": item.name, "error": str(exc)})
+            failed.append(
+                {"item_id": item.item_id, "name": item.name, "error": public_error_text(exc)}
+            )
             yield {
                 "type": "failed",
                 "index": index,
                 "item_id": item.item_id,
                 "name": item.name,
-                "error": str(exc),
-                "error_code": getattr(exc, "code", "selection_error"),
+                "error": public_error_text(exc),
+                "error_code": exc.code,
             }
             continue
 
@@ -439,11 +441,11 @@ async def revert_batch(
             outcome = await revert_snapshot(session=session, client=client, snapshot=snapshot)
         except MetaeditError as exc:
             await session.rollback()
-            failed.append({"item_id": snapshot.item_id, "error": str(exc)})
+            failed.append({"item_id": snapshot.item_id, "error": public_error_text(exc)})
             yield {
                 "type": "failed",
                 "item_id": snapshot.item_id,
-                "error": str(exc),
+                "error": public_error_text(exc),
                 "error_code": exc.code,
             }
             continue

@@ -3,9 +3,20 @@
 One hierarchy, mapped to HTTP in exactly one place (``api.errors``). Nothing
 above this layer raises ``httpx`` or ``psycopg`` exceptions, and no upstream
 payload ever reaches a client verbatim.
+
+The last of those promises is enforced by ``public_error_text`` below, which is the
+single definition of what a client may be told about a failure. Streaming endpoints
+and per-item result payloads both go through it, because "this message is safe" has
+to be decided once rather than re-argued at every place that reports a failure.
 """
 
 from __future__ import annotations
+
+import uuid
+
+import structlog
+
+log = structlog.get_logger(__name__)
 
 
 class MetaeditError(Exception):
@@ -187,3 +198,24 @@ class LastfmContractError(LastfmError):
 
     code = "lastfm_contract"
     http_status = 502
+
+
+def public_error_text(exc: BaseException) -> str:
+    """The text a client may be shown for this failure.
+
+    ``MetaeditError`` messages are written for a reader, so they pass through. Anything
+    else is a bug or an infrastructure fault, and its ``str()`` describes *us*: driver
+    names, host and port, filesystem paths, DSN shape. Those get a reference id instead,
+    and the detail goes to the log under that same reference, so a user's screenshot
+    still leads an operator to the traceback.
+
+    This exists so that no call site has to decide whether an exception is safe to
+    quote. CodeQL found the same leak twice -- once in the SSE catch-all, once in the
+    per-item failure payloads -- because each place re-answered that question.
+    """
+    if isinstance(exc, MetaeditError):
+        return exc.message
+
+    reference = uuid.uuid4().hex[:12]
+    log.error("unexpected_failure", reference=reference, exc_info=exc)
+    return f"Internal error. Reference {reference} -- see the server log for the traceback."
