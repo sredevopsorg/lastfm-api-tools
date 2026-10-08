@@ -11,6 +11,8 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-10-08
+
 ### Fixed
 
 **Internal error text no longer reaches the browser.** CodeQL found this
@@ -42,6 +44,17 @@ answered wrong.
 
 `domain/errors.py` had promised this from the start — "no upstream payload ever reaches a
 client verbatim" — so both leaks were omissions, not decisions.
+
+Found by [CodeQL code scanning](https://github.com/sredevopsorg/lastfm-api-tools/security/code-scanning),
+which was enabled on this repository between the two releases.
+
+### Notes
+
+- GitHub Actions were brought to current majors (`actions/checkout` v7,
+  `actions/upload-artifact` v7, `actions/setup-node` v7) and `astral-sh/setup-uv` to
+  v10.1.0, pinned to a commit SHA so a moved tag cannot change what CI runs.
+- This is a fix release, so nothing in the metadata contract changed. The API version
+  reported by `/openapi.json` is the only interface difference.
 
 ## [0.0.1] - 2026-10-08
 
@@ -170,5 +183,6 @@ recorded because the *class* of mistake is more instructive than the instance.
 - The Last.fm Terms of Service cap stored Last.fm Data at 100 MB. Usage is measured and
   shown; nothing is deleted automatically, and reaching the cap refuses new writes instead.
 
-[Unreleased]: https://github.com/sredevopsorg/lastfm-api-tools/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/sredevopsorg/lastfm-api-tools/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/sredevopsorg/lastfm-api-tools/releases/tag/v0.0.2
 [0.0.1]: https://github.com/sredevopsorg/lastfm-api-tools/releases/tag/v0.0.1

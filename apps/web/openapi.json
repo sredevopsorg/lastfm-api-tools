@@ -3208,7 +3208,7 @@
   "info": {
     "description": "Browse a Jellyfin music library, read artist/album/track metadata from the\nLast.fm API, keep a persistent incremental local archive of every Last.fm\nresponse, review a field-level diff, and apply the accepted changes back to\nJellyfin.\n",
     "title": "metaedit",
-    "version": "0.0.1"
+    "version": "0.0.2"
   },
   "openapi": "3.1.0",
   "paths": {
