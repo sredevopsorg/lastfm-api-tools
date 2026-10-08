@@ -25,7 +25,8 @@ copied from it with `CREATE DATABASE ... TEMPLATE`. Every test still gets a priv
 fully migrated database; only the way it is populated changed.
 
 - The integration suite went from **139 s to 36 s**, and the whole suite from **149 s to
-  40 s**, on the machine that measured it.
+  38 s**, on the machine that measured it. Expect a second or two of movement between runs;
+  the point is the order of magnitude, not the digits.
 - A broken migration now fails the session before any test reports a result, instead of
   being attributed to whichever test happened to run first.
 - The isolation guarantee is what made the suite trustworthy in the first place, so it is
@@ -38,11 +39,10 @@ fully migrated database; only the way it is populated changed.
 
 `test_spa_static.py` covers the containment check in the SPA fallback, which had no test.
 It was not decorative: deleting `candidate.is_relative_to(dist)` makes
-`GET /..%2Fsecret.txt` return a file from outside the bundle, which is verified in the test
-itself by the fact that the check is the only thing standing in the way. The request is
-percent-encoded deliberately — a literal `../` is collapsed by the client and the server
-before the route sees it, so only an encoded separator actually delivers `../` as the path
-parameter. Without that detail the test would have passed for the wrong reason.
+`GET /..%2Fsecret.txt` return a file from outside the bundle, which was verified by deleting
+it. The request is percent-encoded deliberately — a literal `../` is collapsed by the client
+and the server before the route sees it, so only an encoded separator actually arrives as
+the path parameter. Without that detail the test would have passed for the wrong reason.
 
 ### Notes
 
@@ -66,6 +66,9 @@ parameter. Without that detail the test would have passed for the wrong reason.
   repositories, which works right up until someone creates a repository under the old
   name — at which point the links quietly point somewhere else. `CHANGELOG.md` and
   `src/metaedit/config.py` are the only two files affected.
+- `main` is protected by a ruleset that requires an approving code owner review, and
+  `.github/CODEOWNERS` now says who that is. Until this change the rule named nobody and
+  was therefore not enforcing anything.
 
 ## [0.0.2] - 2026-10-08
 
