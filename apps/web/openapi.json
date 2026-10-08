@@ -2668,12 +2668,40 @@
       },
       "ItemSummaryPage": {
         "properties": {
+          "filtered_client_side": {
+            "default": false,
+            "title": "Filtered Client Side",
+            "type": "boolean"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/ItemSummary"
             },
             "title": "Items",
             "type": "array"
+          },
+          "order": {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Order",
+            "type": "string"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "sort": {
+            "enum": [
+              "name",
+              "sort_name",
+              "date_added",
+              "year",
+              "random"
+            ],
+            "title": "Sort",
+            "type": "string"
           },
           "start_index": {
             "title": "Start Index",
@@ -2687,7 +2715,10 @@
         "required": [
           "items",
           "total",
-          "start_index"
+          "start_index",
+          "page_size",
+          "sort",
+          "order"
         ],
         "title": "ItemSummaryPage",
         "type": "object"
@@ -3941,6 +3972,7 @@
     },
     "/api/items": {
       "get": {
+        "description": "Browse one media type, ordered and narrowed.\n\n`sort` is validated against an allow-list rather than passed through. Live-verified\non 12.2.0: an unrecognised `sortBy` is accepted and *silently ignored*, so a\npass-through would let the UI present items in one order while claiming another.",
         "operationId": "items_api_items_get",
         "parameters": [
           {
@@ -4014,13 +4046,86 @@
             }
           },
           {
-            "description": "only items lacking genres, provider ids or an overview",
+            "description": "field to order by",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "sort_name",
+              "description": "field to order by",
+              "enum": [
+                "name",
+                "sort_name",
+                "date_added",
+                "year",
+                "random"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "direction; ignored by `random`",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "direction; ignored by `random`",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Jellyfin's own filter: true returns only items with an overview, false only those without. Applied by the server, so `total` reflects it.",
+            "in": "query",
+            "name": "has_overview",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Jellyfin's own filter: true returns only items with an overview, false only those without. Applied by the server, so `total` reflects it.",
+              "title": "Has Overview"
+            }
+          },
+          {
+            "description": "Jellyfin's own filter: exact production year.",
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9999,
+                  "minimum": 1000,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Jellyfin's own filter: exact production year.",
+              "title": "Year"
+            }
+          },
+          {
+            "description": "only items lacking genres, provider ids or an overview. Jellyfin cannot express this for music, so it filters the fetched page and `total` stays unfiltered -- see `filtered_client_side`.",
             "in": "query",
             "name": "missing_metadata",
             "required": false,
             "schema": {
               "default": false,
-              "description": "only items lacking genres, provider ids or an overview",
+              "description": "only items lacking genres, provider ids or an overview. Jellyfin cannot express this for music, so it filters the fetched page and `total` stays unfiltered -- see `filtered_client_side`.",
               "title": "Missing Metadata",
               "type": "boolean"
             }

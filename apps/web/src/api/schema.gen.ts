@@ -328,7 +328,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Items */
+        /**
+         * Items
+         * @description Browse one media type, ordered and narrowed.
+         *
+         *     `sort` is validated against an allow-list rather than passed through. Live-verified
+         *     on 12.2.0: an unrecognised `sortBy` is accepted and *silently ignored*, so a
+         *     pass-through would let the UI present items in one order while claiming another.
+         */
         get: operations["items_api_items_get"];
         put?: never;
         post?: never;
@@ -1505,8 +1512,25 @@ export interface components {
         };
         /** ItemSummaryPage */
         ItemSummaryPage: {
+            /**
+             * Filtered Client Side
+             * @default false
+             */
+            filtered_client_side: boolean;
             /** Items */
             items: components["schemas"]["ItemSummary"][];
+            /**
+             * Order
+             * @enum {string}
+             */
+            order: "asc" | "desc";
+            /** Page Size */
+            page_size: number;
+            /**
+             * Sort
+             * @enum {string}
+             */
+            sort: "name" | "sort_name" | "date_added" | "year" | "random";
             /** Start Index */
             start_index: number;
             /** Total */
@@ -2123,7 +2147,15 @@ export interface operations {
                 search?: string | null;
                 start_index?: number;
                 page_size?: number;
-                /** @description only items lacking genres, provider ids or an overview */
+                /** @description field to order by */
+                sort?: "name" | "sort_name" | "date_added" | "year" | "random";
+                /** @description direction; ignored by `random` */
+                order?: "asc" | "desc";
+                /** @description Jellyfin's own filter: true returns only items with an overview, false only those without. Applied by the server, so `total` reflects it. */
+                has_overview?: boolean | null;
+                /** @description Jellyfin's own filter: exact production year. */
+                year?: number | null;
+                /** @description only items lacking genres, provider ids or an overview. Jellyfin cannot express this for music, so it filters the fetched page and `total` stays unfiltered -- see `filtered_client_side`. */
                 missing_metadata?: boolean;
             };
             header?: never;

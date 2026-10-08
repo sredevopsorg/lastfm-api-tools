@@ -93,6 +93,48 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         yield test_client
 
 
+@pytest.fixture
+def seen_requests(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
+    """Every Jellyfin request the app makes, in order.
+
+    Asserting on the outbound query is the only way to test sort and filter translation:
+    the response has the same shape either way, and Jellyfin *ignores* an unknown sort
+    key, so a test that only read the response could not tell a working sort from a
+    silently dropped one. That is the failure mode this feature exists to prevent, so
+    the tests read the request instead.
+    """
+    seen: list[httpx.Request] = []
+
+    def recording_handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return _handler(request)
+
+    transport = httpx.MockTransport(recording_handler)
+
+    async def patched_enter(self: JellyfinClient) -> JellyfinClient:
+        self._client = httpx.AsyncClient(transport=transport, timeout=2.0)
+        self._owns_client = True
+        return self
+
+    monkeypatch.setattr(JellyfinClient, "__aenter__", patched_enter)
+
+    settings = _settings()
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        # The client is reachable from the test through `app.state`, but tests only need
+        # to issue requests; exposing it would let them bypass the real handler stack.
+        app.state.test_client = test_client
+        yield seen
+
+
+def _browse_query(seen: list[httpx.Request]) -> dict[str, str]:
+    """The query of the last ``/Items`` browse, as a plain dict."""
+    browse = [r for r in seen if r.url.path == "/Items"]
+    assert browse, f"no /Items request; saw {[r.url.path for r in seen]}"
+    return dict(browse[-1].url.params)
+
+
 def _handler(request: httpx.Request) -> httpx.Response:
     path = request.url.path
     if path == "/Users/Me":
@@ -200,3 +242,123 @@ def test_error_bodies_use_our_envelope(client: TestClient) -> None:
     assert set(body) == {"error"}
     assert body["error"]["code"] == "not_found"
     assert body["error"]["retryable"] is False
+
+
+# ------------------------------------------------------- sort and filter translation
+
+
+def test_the_browse_query_defaults_are_sent_explicitly(
+    client: TestClient, seen_requests: list[httpx.Request]
+) -> None:
+    """No default is left to the server's discretion.
+
+    Jellyfin sorts by `SortName` when `sortBy` is absent, but relying on that would make
+    our ordering a property of someone else's implementation.
+    """
+    client.get("/api/items")
+    query = _browse_query(seen_requests)
+    assert query["sortBy"] == "SortName"
+    assert query["sortOrder"] == "Ascending"
+
+
+@pytest.mark.parametrize(
+    ("sort", "order", "expected_key", "expected_order"),
+    [
+        ("name", "asc", "Name", "Ascending"),
+        ("sort_name", "asc", "SortName", "Ascending"),
+        ("date_added", "desc", "DateCreated", "Descending"),
+        ("year", "desc", "ProductionYear", "Descending"),
+        ("random", "desc", "Random", "Ascending"),
+    ],
+)
+def test_every_sort_key_reaches_jellyfin_translated(
+    client: TestClient,
+    seen_requests: list[httpx.Request],
+    sort: str,
+    order: str,
+    expected_key: str,
+    expected_order: str,
+) -> None:
+    response = client.get(f"/api/items?sort={sort}&order={order}")
+    assert response.status_code == 200
+    query = _browse_query(seen_requests)
+    assert query["sortBy"] == expected_key
+    assert query["sortOrder"] == expected_order
+
+
+def test_an_unknown_sort_key_is_refused_rather_than_ignored(
+    client: TestClient, seen_requests: list[httpx.Request]
+) -> None:
+    """Jellyfin would accept and ignore this, showing one order while claiming another.
+
+    Refusing at the boundary is the only place the mistake can be caught: once the
+    request is out, a wrong order is indistinguishable from a right one.
+    """
+    response = client.get("/api/items?sort=release_year")
+    assert response.status_code == 422
+    assert not [r for r in seen_requests if r.url.path == "/Items"]
+
+
+def test_an_unknown_order_is_refused(client: TestClient) -> None:
+    assert client.get("/api/items?order=sideways").status_code == 422
+
+
+def test_server_filters_reach_jellyfin(
+    client: TestClient, seen_requests: list[httpx.Request]
+) -> None:
+    client.get("/api/items?has_overview=false&year=1995")
+    query = _browse_query(seen_requests)
+    assert query["hasOverview"] == "false"
+    assert query["Years"] == "1995"
+
+
+def test_absent_filters_are_absent_from_the_request(
+    client: TestClient, seen_requests: list[httpx.Request]
+) -> None:
+    """An empty filter parameter is not the same as no filter, and must not be sent."""
+    client.get("/api/items")
+    query = _browse_query(seen_requests)
+    assert "hasOverview" not in query
+    assert "Years" not in query
+
+
+def test_has_overview_accepts_false_as_a_value_not_an_absence(
+    client: TestClient, seen_requests: list[httpx.Request]
+) -> None:
+    """`false` is a filter -- "items lacking an overview" -- and used to be unfilterable."""
+    client.get("/api/items?has_overview=false")
+    assert _browse_query(seen_requests)["hasOverview"] == "false"
+
+
+def test_paging_is_translated(client: TestClient, seen_requests: list[httpx.Request]) -> None:
+    client.get("/api/items?start_index=100&page_size=25")
+    query = _browse_query(seen_requests)
+    assert query["startIndex"] == "100"
+    assert query["limit"] == "25"
+
+
+def test_the_response_reports_what_was_applied(client: TestClient) -> None:
+    """The UI renders what the server did, not what it asked for."""
+    body = client.get("/api/items?sort=year&order=desc&page_size=25").json()
+    assert body["sort"] == "year"
+    assert body["order"] == "desc"
+    assert body["page_size"] == 25
+    assert body["start_index"] == 0
+
+
+def test_a_page_filter_says_it_only_filtered_the_page(client: TestClient) -> None:
+    """The bug this field exists for.
+
+    `missing_metadata` cannot be expressed to Jellyfin, so it narrows the fetched page
+    while `total` keeps counting everything. The old UI showed the unfiltered total above
+    a filtered table with nothing saying the two disagreed.
+    """
+    body = client.get("/api/items?missing_metadata=true").json()
+    assert body["filtered_client_side"] is True
+    # The unfiltered count is still the honest count of the query, not of the table.
+    assert body["total"] == 2
+
+
+def test_a_server_side_filter_does_not_claim_to_be_client_side(client: TestClient) -> None:
+    body = client.get("/api/items?has_overview=false").json()
+    assert body["filtered_client_side"] is False
