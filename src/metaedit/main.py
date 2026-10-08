@@ -16,6 +16,7 @@ from metaedit.api import archive, bulk, errors, hardening, harvest, health, info
 from metaedit.config import Settings, get_settings
 from metaedit.db.partitions import ensure_partitions
 from metaedit.db.session import dispose_engine, get_session_factory, init_engine
+from metaedit.domain.errors import public_failure
 from metaedit.logging import configure_logging
 
 log = structlog.get_logger(__name__)
@@ -99,10 +100,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-        log.error("unhandled_exception", error=type(exc).__name__, detail=str(exc))
+        """The last resort, and the only place a client sees the reference id.
+
+        The body is deliberately *reportable*: a user who hits this has no other way to
+        describe what happened, and "Unexpected server error." gives them nothing to send.
+        The reference ties their report to the traceback, the error type names what broke,
+        and ``path`` says where -- none of which describes our internals beyond a class
+        name, which is the same thing the log line already records.
+        """
+        failure = public_failure(exc, log_context=f"{request.method} {request.url.path}")
+        # `public_failure` already logged the traceback under this reference; this adds
+        # where the request was, without a second traceback.
+        log.error(
+            "unhandled_exception",
+            reference=failure["reference"],
+            error=type(exc).__name__,
+            method=request.method,
+            path=request.url.path,
+        )
         return JSONResponse(
             status_code=500,
-            content={"error": {"code": "internal_error", "message": "Unexpected server error."}},
+            content={
+                "error": {
+                    "code": failure["code"],
+                    "message": failure["message"],
+                    "reference": failure["reference"],
+                    "occurred": type(exc).__name__,
+                    "path": f"{request.method} {request.url.path}",
+                    "retryable": False,
+                }
+            },
         )
 
     _mount_spa(app, settings)

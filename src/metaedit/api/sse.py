@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from metaedit.domain.errors import MetaeditError, public_error_text
+from metaedit.domain.errors import MetaeditError, public_error_text, public_failure
 
 
 def sse_frame(event: dict[str, Any]) -> str:
@@ -29,9 +29,12 @@ def error_frame(exc: BaseException, *, code: str) -> dict[str, Any]:
 
     ``code`` is the fallback for unexpected failures; an expected failure keeps its own
     code from the error hierarchy.
+
+    An unexpected failure carries its ``reference`` as a field rather than only inside the
+    message, so the SPA can show it, log it, or put it in a bug report without parsing
+    prose that is ours to reword.
     """
-    return {
-        "type": "error",
-        "code": exc.code if isinstance(exc, MetaeditError) else code,
-        "message": public_error_text(exc),
-    }
+    if isinstance(exc, MetaeditError):
+        return {"type": "error", "code": exc.code, "message": public_error_text(exc)}
+    failure = public_failure(exc, log_context=code)
+    return {"type": "error", **failure}

@@ -12,11 +12,14 @@ to be decided once rather than re-argued at every place that reports a failure.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
-import structlog
-
-log = structlog.get_logger(__name__)
+# stdlib logging, not structlog, and deliberately so: `configure_logging` sets
+# `cache_logger_on_first_use`, which makes a module-level structlog logger invisible to
+# `structlog.testing.capture_logs`. That would leave the reference-id guarantee untestable
+# -- the tests assert the reference a client is shown is the one recorded server-side.
+log = logging.getLogger(__name__)
 
 
 class MetaeditError(Exception):
@@ -200,6 +203,22 @@ class LastfmContractError(LastfmError):
     http_status = 502
 
 
+def new_reference() -> str:
+    """A short id linking what a client was told to what the log recorded."""
+    return uuid.uuid4().hex[:12]
+
+
+def unexpected_failure_message(reference: str) -> str:
+    """What a client is told about a failure that is ours, not theirs.
+
+    The reference is the whole point: it is the only thing connecting a user's report to
+    the traceback in the log, so it is phrased to be *actionable* rather than merely
+    apologetic. "Unexpected server error." tells a user nothing they can do; a reference
+    and an instruction tells them what to send.
+    """
+    return f"Internal error. Reference {reference} -- see the server log for the traceback."
+
+
 def public_error_text(exc: BaseException) -> str:
     """The text a client may be shown for this failure.
 
@@ -216,6 +235,34 @@ def public_error_text(exc: BaseException) -> str:
     if isinstance(exc, MetaeditError):
         return exc.message
 
-    reference = uuid.uuid4().hex[:12]
-    log.error("unexpected_failure", reference=reference, exc_info=exc)
-    return f"Internal error. Reference {reference} -- see the server log for the traceback."
+    return public_failure(exc)["message"]
+
+
+def public_failure(exc: BaseException, *, log_context: str | None = None) -> dict[str, str]:
+    """The full error object for a failure that is not a ``MetaeditError``.
+
+    Returns the code as well as the message so callers stop hard-coding ``internal_error``
+    next to a reference id that says something different. Structured the way the SSE event
+    and the JSON error body already are, so one shape serves both.
+
+    Logged through ``logging.getLogger`` rather than structlog on purpose. The configured
+    structlog chain sets ``cache_logger_on_first_use``, so a logger obtained at import time
+    caches its bound processors and becomes invisible to ``structlog.testing.capture_logs``
+    -- which is how the tests verify that the reference a client is shown is the reference
+    the server recorded. A stdlib logger reaches structlog's own
+    ``ProcessorFormatter``-independent handlers and stays capturable.
+    """
+    reference = new_reference()
+    log.error(
+        "unexpected_failure reference=%s error=%s context=%s detail=%s",
+        reference,
+        type(exc).__name__,
+        log_context,
+        exc,
+        exc_info=exc,
+    )
+    return {
+        "code": "internal_error",
+        "message": unexpected_failure_message(reference),
+        "reference": reference,
+    }

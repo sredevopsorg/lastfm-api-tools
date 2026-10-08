@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from tests.support.logs import captured_failure_logs
 
 from metaedit.adapters.jellyfin.dto import BaseItemDto
 from metaedit.api import errors
@@ -116,8 +117,8 @@ def test_a_value_the_converter_does_not_know_is_still_not_a_crash() -> None:
 
     ``to_jsonable`` deliberately passes unrecognised objects through instead of calling
     ``str()`` on them, so a mistake surfaces rather than becoming a mangled value in a
-    response body. This test holds that decision in place, and pins what a caller sees:
-    the app's own catch-all turns it into a generic 500 with no traceback.
+    response body. The app's catch-all still turns it into a reportable 500 -- see
+    ``test_unhandled_failures_are_reportable`` for what that body contains.
     """
 
     class Opaque:
@@ -133,10 +134,12 @@ def test_a_value_the_converter_does_not_know_is_still_not_a_crash() -> None:
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.get("/raise-opaque")
 
+    body = response.json()
     assert response.status_code == 500
-    assert response.json() == {
-        "error": {"code": "internal_error", "message": "Unexpected server error."}
-    }
+    assert body["error"]["code"] == "internal_error"
+    assert "Reference" in body["error"]["message"]
+    # The type name is what broke, not what a user did -- that is the useful part.
+    assert body["error"]["occurred"] == "TypeError"
 
 
 def test_every_error_body_is_serialisable_once_converted() -> None:
@@ -147,3 +150,38 @@ def test_every_error_body_is_serialisable_once_converted() -> None:
         UpstreamError("upstream", detail={"at": TIMESTAMP}),
     ):
         json.dumps(to_jsonable(error.to_body()))  # what the handlers actually send
+
+
+def test_unhandled_failures_are_reportable(caplog) -> None:  # type: ignore[no-untyped-def]
+    """A 500 nobody can describe is worse than one with a reference and a type name.
+
+    ``Unexpected server error.`` gave a user nothing to send and nothing to search for.
+    The body now carries a reference that appears in the log, the exception type, and the
+    path -- enough for a bug report, and no more of our internals than the log already has.
+    """
+    app = create_app(Settings(_env_file=None, LOG_JSON=False))  # type: ignore[call-arg]
+    app.dependency_overrides[get_settings] = lambda: app.state.settings
+
+    @app.get("/always-broken")
+    def _raise() -> None:
+        raise RuntimeError("something internal about the host")
+
+    with (
+        captured_failure_logs(caplog) as logs,
+        TestClient(app, raise_server_exceptions=False) as client,
+    ):
+        response = client.get("/always-broken")
+
+    assert response.status_code == 500
+    error = response.json()["error"]
+    assert error["code"] == "internal_error"
+    assert error["occurred"] == "RuntimeError"
+    assert error["path"] == "GET /always-broken"
+    assert error["retryable"] is False
+
+    reference = error["reference"]
+    assert reference and reference in error["message"]
+    # The point of the reference: it is in the log, so a report leads to the traceback.
+    assert any(entry.get("reference") == reference for entry in logs), logs
+    # And the internal detail is *not* in the response.
+    assert "something internal about the host" not in response.text
