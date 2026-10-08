@@ -1089,6 +1089,9 @@ export interface components {
             overrides?: components["schemas"]["FieldPolicyOverride"][];
             /**
              * @default {
+             *       "album_ids": [],
+             *       "artist_ids": [],
+             *       "exclude": [],
              *       "kind": "artist",
              *       "limit": 50,
              *       "missing": []
@@ -1165,6 +1168,11 @@ export interface components {
             batch_id: string;
             /** Created At */
             created_at: string;
+            /**
+             * Excluded
+             * @default 0
+             */
+            excluded: number;
             /** Items */
             items: number;
             /** Job Id */
@@ -1189,6 +1197,21 @@ export interface components {
          * @description Which items, and nothing else. The fields to write are chosen after review.
          */
         BulkSelection: {
+            /**
+             * Album Ids
+             * @description only songs on these albums; applies to `song`
+             */
+            album_ids?: string[];
+            /**
+             * Artist Ids
+             * @description only items credited to these artists; applies to `album` and `song`
+             */
+            artist_ids?: string[];
+            /**
+             * Exclude
+             * @description case-insensitive glob patterns; an item whose name, album or album artist matches any of them is dropped.
+             */
+            exclude?: string[];
             /**
              * Ids
              * @description explicit item ids, if known
@@ -1225,6 +1248,8 @@ export interface components {
             batch_id: string | null;
             /** Batch Revert */
             batch_revert: string | null;
+            /** Excluded */
+            excluded?: number | null;
             /** Failed */
             failed: number | null;
             /** Failures */
@@ -1237,8 +1262,12 @@ export interface components {
             job_id: string | null;
             /** Reverted */
             reverted: number | null;
+            /** Scanned */
+            scanned?: number | null;
             /** Skipped */
             skipped: number | null;
+            /** Truncated */
+            truncated?: boolean | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1559,6 +1588,9 @@ export interface components {
             genre: string;
             /**
              * @default {
+             *       "album_ids": [],
+             *       "artist_ids": [],
+             *       "exclude": [],
              *       "kind": "artist",
              *       "limit": 100
              *     }
@@ -1574,6 +1606,21 @@ export interface components {
          *     something, which it cannot.
          */
         GenreRemovalSelection: {
+            /**
+             * Album Ids
+             * @description only songs on these albums; applies to `song`
+             */
+            album_ids?: string[];
+            /**
+             * Artist Ids
+             * @description only items credited to these artists; applies to `album` and `song`
+             */
+            artist_ids?: string[];
+            /**
+             * Exclude
+             * @description case-insensitive glob patterns; an item whose name, album or album artist matches any of them is dropped. Worth more here than anywhere else: removing a genre from every compilation is rarely what is meant.
+             */
+            exclude?: string[];
             /**
              * Ids
              * @description explicit item ids, if known
@@ -1748,6 +1795,9 @@ export interface components {
             search_fallback: boolean;
             /**
              * @default {
+             *       "album_ids": [],
+             *       "artist_ids": [],
+             *       "exclude": [],
              *       "kind": "artist",
              *       "limit": 50,
              *       "missing": []
@@ -1771,6 +1821,21 @@ export interface components {
          * @description Which items to fetch for. Mirrors the library browse parameters.
          */
         HarvestSelection: {
+            /**
+             * Album Ids
+             * @description only songs on these albums; applies to `song`
+             */
+            album_ids?: string[];
+            /**
+             * Artist Ids
+             * @description only items credited to these artists; applies to `album` and `song`
+             */
+            artist_ids?: string[];
+            /**
+             * Exclude
+             * @description case-insensitive glob patterns; an item whose name, album or album artist matches any of them is dropped
+             */
+            exclude?: string[];
             /**
              * Ids
              * @description explicit item ids, if known
@@ -2064,6 +2129,11 @@ export interface components {
             batch_id: string;
             /** Created At */
             created_at: string;
+            /**
+             * Excluded
+             * @default 0
+             */
+            excluded: number;
             /** Items */
             items: number;
             /** Job Id */
@@ -2113,6 +2183,8 @@ export interface components {
             batch_revert: string | null;
             /** Emptied */
             emptied?: components["schemas"]["EmptiedField"][];
+            /** Excluded */
+            excluded?: number | null;
             /** Failed */
             failed: number | null;
             /** Failures */
@@ -2127,8 +2199,12 @@ export interface components {
             removing?: string | null;
             /** Reverted */
             reverted: number | null;
+            /** Scanned */
+            scanned?: number | null;
             /** Skipped */
             skipped: number | null;
+            /** Truncated */
+            truncated?: boolean | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}

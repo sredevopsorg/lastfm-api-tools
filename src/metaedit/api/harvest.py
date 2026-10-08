@@ -55,6 +55,23 @@ class HarvestSelection(BaseModel):
             "selection for `overview` selects nothing rather than everything."
         ),
     )
+    # The same three narrowings the batch and the browse accept, so a selection means one
+    # thing across the app. Honoured rather than merely accepted: a field the API takes and
+    # ignores is worse than one it refuses, because the caller has no way to find out.
+    artist_ids: list[str] = Field(
+        default_factory=list,
+        description="only items credited to these artists; applies to `album` and `song`",
+    )
+    album_ids: list[str] = Field(
+        default_factory=list, description="only songs on these albums; applies to `song`"
+    )
+    exclude: list[str] = Field(
+        default_factory=list,
+        description=(
+            "case-insensitive glob patterns; an item whose name, album or album artist "
+            "matches any of them is dropped"
+        ),
+    )
 
 
 class HarvestRequest(BaseModel):
@@ -141,7 +158,7 @@ async def harvest_batch(
     large selection shows progress rather than appearing to hang, and an item that
     cannot be found is reported without stopping the batch.
     """
-    dtos = await bulk.select_items(
+    outcome = await bulk.select_items(
         client,
         kind=body.selection.kind,
         parent_id=body.selection.parent_id,
@@ -149,11 +166,14 @@ async def harvest_batch(
         ids=body.selection.ids,
         limit=body.selection.limit,
         missing=body.selection.missing,
+        artist_ids=body.selection.artist_ids,
+        album_ids=body.selection.album_ids,
+        exclude=body.selection.exclude,
     )
-    if not dtos:
+    if not outcome.items:
         raise NotFoundError("The selection matched no items, so there is nothing to fetch.")
 
-    items = [normalise(dto) for dto in dtos]
+    items = [normalise(dto) for dto in outcome.items]
 
     async def events() -> AsyncIterator[dict[str, Any]]:
         found = 0

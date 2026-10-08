@@ -65,6 +65,20 @@ class BulkSelection(BaseModel):
             "selection for `overview` selects nothing rather than everything."
         ),
     )
+    artist_ids: list[str] = Field(
+        default_factory=list,
+        description="only items credited to these artists; applies to `album` and `song`",
+    )
+    album_ids: list[str] = Field(
+        default_factory=list, description="only songs on these albums; applies to `song`"
+    )
+    exclude: list[str] = Field(
+        default_factory=list,
+        description=(
+            "case-insensitive glob patterns; an item whose name, album or album artist "
+            "matches any of them is dropped."
+        ),
+    )
 
 
 class BulkDiffRequest(BaseModel):
@@ -145,6 +159,9 @@ async def bulk_diff(
         ids=body.selection.ids,
         limit=body.selection.limit,
         missing=body.selection.missing,
+        artist_ids=body.selection.artist_ids,
+        album_ids=body.selection.album_ids,
+        exclude=body.selection.exclude,
         overrides={override.field: override.mode for override in body.overrides},
         tag_policy=await tag_policy_with_stored_blacklist(session, settings, body.tag_policy),
         min_confidence=body.min_confidence,
@@ -275,6 +292,21 @@ class GenreRemovalSelection(BaseModel):
     parent_id: str | None = None
     search: str | None = None
     limit: int = Field(default=100, ge=1, le=MAX_ITEMS)
+    artist_ids: list[str] = Field(
+        default_factory=list,
+        description="only items credited to these artists; applies to `album` and `song`",
+    )
+    album_ids: list[str] = Field(
+        default_factory=list, description="only songs on these albums; applies to `song`"
+    )
+    exclude: list[str] = Field(
+        default_factory=list,
+        description=(
+            "case-insensitive glob patterns; an item whose name, album or album artist "
+            "matches any of them is dropped. Worth more here than anywhere else: "
+            "removing a genre from every compilation is rarely what is meant."
+        ),
+    )
 
 
 class GenreRemovalRequest(BaseModel):
@@ -324,6 +356,9 @@ def _removal_selection(
         target=genre,
         fields=tuple(fields or ("Genres",)),
         decompose=decompose,
+        artist_ids=tuple(body.artist_ids),
+        album_ids=tuple(body.album_ids),
+        exclude=tuple(body.exclude),
     )
 
 

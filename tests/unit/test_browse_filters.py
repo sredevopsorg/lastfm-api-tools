@@ -131,24 +131,47 @@ def test_the_scan_cap_is_finite_and_reported() -> None:
     assert 0 < MAX_SCAN_ITEMS < 100_000
 
 
-def test_the_bulk_service_uses_this_same_definition() -> None:
-    """One definition, or the browse and the bulk editor disagree about what needs work.
+def test_every_selection_path_uses_this_same_definition() -> None:
+    """One definition, or the browse and the write paths disagree about what needs work.
 
-    The bulk selection and the harvest selection had their own inline test -- "not
-    Genres or not ProviderIds or not Overview" -- which was the same conflation this
-    module exists to remove, left behind when the library browse was fixed. Over a song
-    library that matched almost every item, on a screen whose output is a write.
+    The bulk selection and the harvest selection once had their own inline test -- "not
+    Genres or not ProviderIds or not Overview" -- which was the same conflation this module
+    exists to remove, left behind when the library browse was fixed. Over a song library
+    that matched almost every item, on a screen whose output is a write.
 
-    Asserted structurally rather than by re-testing the logic: the service must read the
-    domain's predicate, and a second inline implementation is what this catches.
+    The guarantee got *stronger* when the batch, the removal and the harvest began sharing
+    ``service.selection``, so this asserts the new shape rather than the old one: the single
+    predicate is read in one place, every selection path delegates to that place, and no
+    caller has grown a second opinion. A test that still looked for ``is_missing(`` inside
+    ``select_items`` would now pass by accident if someone re-inlined it there.
     """
     import inspect
 
     from metaedit.service import bulk as bulk_service
+    from metaedit.service import genre_removal as removal_service
+    from metaedit.service import selection as selection_service
 
-    source = inspect.getsource(bulk_service.select_items)
-    assert "is_missing(" in source, "the bulk selection must use the shared predicate"
-    assert "not item.Genres" not in source, "an inline missing-test has crept back in"
+    predicates = inspect.getsource(selection_service)
+    assert "is_missing(" in predicates, "the shared selection must use the domain predicate"
+    assert "is_excluded(" in predicates, "and the exclusion predicate, likewise"
+
+    for module, function in (
+        (bulk_service, "select_items"),
+        (removal_service, "find_items"),
+        (selection_service, "collect"),
+    ):
+        source = inspect.getsource(getattr(module, function))
+        assert "not item.Genres" not in source, (
+            f"an inline missing-test has crept back into {module.__name__}.{function}"
+        )
+        assert "fnmatch" not in source, (
+            f"{module.__name__}.{function} has its own exclusion matcher; there is one"
+        )
+
+    # And each path hands the decision to the shared module rather than reproducing it.
+    assert "Selection.build(" in inspect.getsource(bulk_service.select_items)
+    assert "collect(" in inspect.getsource(bulk_service.select_items)
+    assert "Selection.build(" in inspect.getsource(removal_service.RemovalSelection.filter_for)
 
 
 def test_the_adapter_presents_a_jellyfin_dto_in_the_shape_the_filter_reads() -> None:
@@ -158,7 +181,7 @@ def test_the_adapter_presents_a_jellyfin_dto_in_the_shape_the_filter_reads() -> 
     would come to disagree, so there is one predicate and a small adapter.
     """
     from metaedit.adapters.jellyfin.dto import BaseItemDto
-    from metaedit.service.bulk import _aspects_of
+    from metaedit.service.selection import aspects_of
 
     dto = BaseItemDto.model_validate(
         {
@@ -171,7 +194,7 @@ def test_the_adapter_presents_a_jellyfin_dto_in_the_shape_the_filter_reads() -> 
             "Overview": "",
         }
     )
-    aspects = _aspects_of(dto)
+    aspects = aspects_of(dto)
     assert aspects.genres == []
     assert aspects.tags == ["keep"]
     assert aspects.has_provider_ids is False

@@ -33,7 +33,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.adapters.jellyfin.client import JellyfinClient
 from metaedit.db.models import Snapshot
-from metaedit.domain.browse_filters import SummaryLike, is_missing, normalise_aspects
 from metaedit.domain.confidence import Confidence
 from metaedit.domain.diff import DiffPlan
 from metaedit.domain.errors import MetaeditError, ValidationError, public_error_text
@@ -48,6 +47,7 @@ from metaedit.service.planning import (
     QUERY_KINDS,
     build_best_plan,
 )
+from metaedit.service.selection import Selection, SelectionOutcome, collect
 
 log = get_logger(__name__)
 
@@ -86,13 +86,17 @@ class BulkJob:
     requested: dict[str, Any]
     items: list[BulkItem] = field(default_factory=list)
     applied: bool = False
+    # What the selection read, and what it cost. Kept so the summary can explain a batch
+    # that is shorter than the limit it was given -- an exclusion pattern or an aspect
+    # filter can legitimately select fewer items than asked for.
+    report: SelectionOutcome | None = None
 
     @property
     def applicable_items(self) -> list[BulkItem]:
         return [item for item in self.items if item.applicable]
 
     def summary(self) -> dict[str, Any]:
-        return {
+        summary: dict[str, Any] = {
             "job_id": self.job_id,
             "batch_id": self.batch_id,
             "items": len(self.items),
@@ -100,7 +104,15 @@ class BulkJob:
             "skipped": len(self.items) - len(self.applicable_items),
             "created_at": self.created_at.isoformat(),
             "applied": self.applied,
+            "excluded": self.report.excluded if self.report is not None else 0,
         }
+        if self.report is not None and self.report.scanned is not None:
+            # Only present when the library was actually read. Emitting zero for a
+            # forwarded selection would claim a scan happened and found nothing to look
+            # at, which is a different statement from "nothing needed reading".
+            summary["scanned"] = self.report.scanned
+            summary["truncated"] = self.report.truncated
+        return summary
 
 
 @runtime_checkable
@@ -181,64 +193,45 @@ async def select_items(
     ids: Iterable[str] | None = None,
     limit: int = 50,
     missing: Iterable[str] | None = None,
-) -> list[Any]:
-    """The items this batch will consider. Ordering is the server's, so it is stable.
+    artist_ids: Iterable[str] | None = None,
+    album_ids: Iterable[str] | None = None,
+    exclude: Iterable[str] | None = None,
+) -> SelectionOutcome:
+    """The items this batch will consider, and what reading them cost.
+
+    Ordering is the server's, so it is stable. The narrowing -- which ids are safe to send,
+    which fields a pattern sees, and which items pass -- is the shared definition in
+    ``service.selection``, so a batch and the browse screen cannot disagree about it.
 
     ``missing`` names the aspects to filter on, per media type, and uses the same
     definition as the library browse. The boolean this replaced -- "missing metadata" --
     lumped genres, provider ids and overview together for every media type, which over a
     song library matched almost everything: a song without an overview is the normal state
     of a song (measured on a live library, 5,441 of 5,442 songs have none).
+
+    Returns the outcome rather than a bare list because a filtered selection can be
+    *shorter than the limit* even when plenty of items match, and ``excluded`` is the only
+    thing that distinguishes that from a broken filter.
     """
     if limit > MAX_BATCH_ITEMS:
         raise ValidationError(
             f"limit {limit} exceeds the {MAX_BATCH_ITEMS} item batch cap; narrow the query"
         )
-    explicit = [item_id for item_id in (ids or []) if item_id]
-    if explicit:
-        return list(await client.items_by_ids(explicit[:limit]))
-
-    item_kind = ITEM_KIND_BY_QUERY.get(kind)
-    if item_kind is None:
-        raise ValidationError(
-            f"unknown selection kind {kind!r}; expected one of {sorted(ITEM_KIND_BY_QUERY)}"
-        )
-    result = await client.items(
-        kind=item_kind, parent_id=parent_id, search_term=search, limit=limit
+    selection = Selection.build(
+        kind=kind,
+        artist_ids=artist_ids,
+        album_ids=album_ids,
+        exclude=exclude,
+        missing=missing,
     )
-    items = list(result.Items)
-    aspects = normalise_aspects(item_kind, frozenset(missing or ()))
-    if aspects:
-        # Jellyfin has no music-library filter for this, so it is applied to the page --
-        # and skipping an item is honest here, because the batch reports it as skipped
-        # rather than quietly omitting it.
-        items = [item for item in items if is_missing(item_kind, aspects, _aspects_of(item))]
-    return items
-
-
-def _aspects_of(dto: Any) -> SummaryLike:
-    """The slice of a Jellyfin DTO the missing-filter reads.
-
-    A small adapter rather than teaching the domain about ``BaseItemDto``: the filter is
-    shared with the library browse, which feeds it item *summaries*, and those are a
-    different type with the same four fields. Narrowing here keeps the comparison in one
-    place -- two implementations of "has no genres" is how the browse and the bulk editor
-    would come to disagree about which items need work.
-    """
-    return _DtoAspects(
-        genres=list(dto.Genres or []),
-        tags=list(dto.Tags or []),
-        has_provider_ids=bool(dto.ProviderIds),
-        has_overview=bool((dto.Overview or "").strip()),
+    return await collect(
+        client,
+        selection=selection,
+        parent_id=parent_id,
+        search=search,
+        ids=ids,
+        limit=limit,
     )
-
-
-@dataclass(frozen=True, slots=True)
-class _DtoAspects:
-    genres: list[str]
-    tags: list[str]
-    has_provider_ids: bool
-    has_overview: bool
 
 
 async def build_job(
@@ -251,6 +244,9 @@ async def build_job(
     ids: Iterable[str] | None = None,
     limit: int = 50,
     missing: Sequence[str] | None = None,
+    artist_ids: Sequence[str] | None = None,
+    album_ids: Sequence[str] | None = None,
+    exclude: Sequence[str] | None = None,
     overrides: dict[str, Mode] | None = None,
     tag_policy: TagPolicy | None = None,
     min_confidence: float = 0.0,
@@ -261,7 +257,7 @@ async def build_job(
     below ``min_confidence``, is included in the job as skipped rather than omitted --
     silently dropping items would make a batch look complete when it was not.
     """
-    dtos = await select_items(
+    outcome = await select_items(
         client,
         kind=kind,
         parent_id=parent_id,
@@ -269,6 +265,9 @@ async def build_job(
         ids=ids,
         limit=limit,
         missing=missing,
+        artist_ids=artist_ids,
+        album_ids=album_ids,
+        exclude=exclude,
     )
     job = BulkJob(
         job_id=uuid.uuid4().hex,
@@ -280,11 +279,15 @@ async def build_job(
             "search": search,
             "limit": limit,
             "missing": list(missing or ()),
+            "artist_ids": list(artist_ids or ()),
+            "album_ids": list(album_ids or ()),
+            "exclude": list(exclude or ()),
             "min_confidence": min_confidence,
         },
+        report=outcome,
     )
 
-    for dto in dtos:
+    for dto in outcome.items:
         try:
             plan = await build_best_plan(
                 session=session,
