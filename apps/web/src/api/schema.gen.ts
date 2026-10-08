@@ -904,7 +904,7 @@ export interface components {
              * @default {
              *       "kind": "artist",
              *       "limit": 50,
-             *       "missing_metadata": false
+             *       "missing": []
              *     }
              */
             selection: components["schemas"]["BulkSelection"];
@@ -1019,11 +1019,10 @@ export interface components {
              */
             limit: number;
             /**
-             * Missing Metadata
-             * @description only items lacking genres, provider ids or an overview
-             * @default false
+             * Missing
+             * @description only items lacking any of these: genres, provider_ids, overview, tags. Aspects that do not apply to the media type are ignored, so asking a song selection for `overview` selects nothing rather than everything.
              */
-            missing_metadata: boolean;
+            missing?: ("genres" | "provider_ids" | "overview" | "tags")[];
             /** Parent Id */
             parent_id?: string | null;
             /** Search */
@@ -1421,7 +1420,7 @@ export interface components {
              * @default {
              *       "kind": "artist",
              *       "limit": 50,
-             *       "missing_metadata": false
+             *       "missing": []
              *     }
              */
             selection: components["schemas"]["HarvestSelection"];
@@ -1459,11 +1458,10 @@ export interface components {
              */
             limit: number;
             /**
-             * Missing Metadata
-             * @description only items lacking genres, provider ids or an overview
-             * @default false
+             * Missing
+             * @description only items lacking any of these: genres, provider_ids, overview, tags. Aspects that do not apply to the media type are ignored, so asking a song selection for `overview` selects nothing rather than everything.
              */
-            missing_metadata: boolean;
+            missing?: ("genres" | "provider_ids" | "overview" | "tags")[];
             /** Parent Id */
             parent_id?: string | null;
             /** Search */

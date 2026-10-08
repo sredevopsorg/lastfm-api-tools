@@ -70,7 +70,14 @@ def is_missing(kind: ItemKind, aspects: frozenset[str], item: SummaryLike) -> bo
 
     ``any`` rather than ``all``: a filter is a question about what is worth looking at,
     and an item with genres but no provider ids still has something to fix.
+
+    Normalises internally. Both current call sites happen to pass an already-normalised
+    set, and a test written against this function directly did not -- asking whether a
+    song is "missing an overview" returned True, which is the exact false positive this
+    module exists to prevent. Relying on callers to normalise is the same class of
+    mistake as relying on callers to escape their own error text.
     """
+    aspects = normalise_aspects(kind, aspects)
     if not aspects:
         return False
     checks = {
@@ -87,11 +94,19 @@ class SummaryLike(Protocol):
     """The slice of an item summary a filter reads.
 
     Structural, so the API layer's pydantic ``ItemSummary`` satisfies it without being
-    imported here and without knowing this module exists. The dependency keeps pointing
-    inward: the domain states what it needs, and the boundary happens to provide it.
+    imported here and without knowing this module exists, and the bulk service can adapt a
+    Jellyfin DTO into it. The dependency keeps pointing inward: the domain states what it
+    reads, and each boundary provides it.
+
+    Declared as read-only properties rather than mutable attributes: a frozen dataclass
+    satisfies a read-only protocol but not a settable one, and nothing here writes.
     """
 
-    genres: list[str]
-    tags: list[str]
-    has_provider_ids: bool
-    has_overview: bool
+    @property
+    def genres(self) -> list[str]: ...
+    @property
+    def tags(self) -> list[str]: ...
+    @property
+    def has_provider_ids(self) -> bool: ...
+    @property
+    def has_overview(self) -> bool: ...

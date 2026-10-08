@@ -199,7 +199,10 @@ export interface BulkSelectionInput {
   parent_id?: string | null
   search?: string | null
   limit?: number
-  missing_metadata?: boolean
+  // Aspects to filter on, per media type. Replaces a boolean that lumped genres, ids and
+  // overview together -- which over a song library matched almost everything, because a
+  // song without an overview is the normal state of a song.
+  missing?: ('genres' | 'provider_ids' | 'overview' | 'tags')[]
 }
 
 // ------------------------------------------------------- typed query helpers

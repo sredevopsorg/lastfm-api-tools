@@ -47,10 +47,33 @@ DEFAULT_ORDER: SortOrder = "asc"
 def jellyfin_sort_by(sort: str, order: str) -> tuple[tuple[str, ...], str]:
     """Translate a browse sort into the parameters the Jellyfin client takes.
 
-    Returns ``(sort_by, sort_order)`` -- a tuple because the client's ``sort_by`` is a
-    sequence and Jellyfin permits a tiebreaker chain. Only one key is used today; the
-    shape is the client's, not ours, and keeping it avoids a second translation when a
-    tiebreaker is wanted.
+    Returns ``(sort_by, sort_order)``. The tuple is the client's shape and Jellyfin
+    accepts a comma-separated chain, but **only one key is sent**, and that is a
+    deliberate limitation rather than an oversight.
+
+    Paging over a non-total order is unsound: if two items share a sort value, the server
+    may order them arbitrarily, and an `OFFSET` window can then return one twice and the
+    other never. That is exactly what happened to the archive's derived layer, where
+    `ORDER BY name` over 3 duplicate album names lost a row across a 109-item walk.
+
+    A tiebreaker was tried and could not be verified: appending `Id` -- or even a nonsense
+    second key -- to `sortBy` produced byte-identical responses on a live 12.2.0 server,
+    so there is no evidence the second key is honoured. Adding a key that does nothing
+    would be worse than not adding one, because it would read as a guarantee.
+
+    What *was* verified is that the library browse is safe as it stands, and by
+    measurement rather than by assumption:
+
+        MusicArtist  639 items  walked 639, distinct 639, no duplicates
+        MusicAlbum   502 items  walked 502, distinct 502, no duplicates
+        Audio       5442 items  walked 5442, distinct 5442, no duplicates
+
+    and that ten identical requests return one identical ordering, with paged windows
+    matching a single-shot fetch of the same range. So Jellyfin's own ordering is stable
+    in practice. The guarantee is the server's, not ours; if a future server version
+    orders ties differently between requests, paging would silently lose rows and
+    `test_the_stub_ignores_an_unknown_sort_key` is the canary that the behaviour is
+    modelled at all.
     """
     key = SORT_BY_JELLYFIN_KEY[sort]
     if sort in ORDERLESS_SORT_KEYS:

@@ -4,12 +4,12 @@
   "version": "0.0.3",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit && node --experimental-strip-types scripts/run-tests.mjs && vite build",
+    "build": "npm run typecheck && node --experimental-strip-types scripts/run-tests.mjs && vite build",
     "dev": "vite",
     "e2e": "playwright test",
     "preview": "vite preview",
     "test": "tsc -p tsconfig.test.json --noEmit && node --experimental-strip-types scripts/run-tests.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.e2e.json --noEmit"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.7",

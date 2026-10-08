@@ -391,7 +391,13 @@ export function Library() {
           <div className="panel actions selection-bar">
             <span>
               <strong>{selected.size}</strong> selected
-              {pageSelected > 0 && selected.size !== pageSelected ? (
+              {/* Shown whenever part of the selection is elsewhere. The `pageSelected > 0`
+                  guard that used to be here hid exactly the case that matters most: an
+                  operator on page 2 with a selection made on page 1 saw "1 selected" and
+                  nothing saying none of it was on screen -- and that selection feeds a
+                  write. An e2e spec asserting this text is what surfaced it, by failing
+                  against an assertion that could never be satisfied. */}
+              {selected.size !== pageSelected ? (
                 <span className="muted small"> ({pageSelected} on this page)</span>
               ) : null}
             </span>

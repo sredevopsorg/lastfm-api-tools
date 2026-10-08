@@ -31,6 +31,7 @@ from metaedit.api.schemas import HarvestItemResponse, HarvestStreamEvent
 from metaedit.api.sse import error_frame, sse_frame
 from metaedit.archive.reindex import reindex
 from metaedit.db.session import get_session
+from metaedit.domain.browse_filters import MissingAspect
 from metaedit.domain.errors import NotFoundError
 from metaedit.service import bulk, harvest
 from metaedit.service.planning import normalise
@@ -46,8 +47,13 @@ class HarvestSelection(BaseModel):
     parent_id: str | None = None
     search: str | None = None
     limit: int = Field(default=50, ge=1, le=bulk.MAX_BATCH_ITEMS)
-    missing_metadata: bool = Field(
-        default=False, description="only items lacking genres, provider ids or an overview"
+    missing: list[MissingAspect] = Field(
+        default_factory=list,
+        description=(
+            "only items lacking any of these: genres, provider_ids, overview, tags. "
+            "Aspects that do not apply to the media type are ignored, so asking a song "
+            "selection for `overview` selects nothing rather than everything."
+        ),
     )
 
 
@@ -142,7 +148,7 @@ async def harvest_batch(
         search=body.selection.search,
         ids=body.selection.ids,
         limit=body.selection.limit,
-        missing_metadata=body.selection.missing_metadata,
+        missing=body.selection.missing,
     )
     if not dtos:
         raise NotFoundError("The selection matched no items, so there is nothing to fetch.")

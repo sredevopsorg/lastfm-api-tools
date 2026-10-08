@@ -129,3 +129,53 @@ def test_the_scan_cap_is_finite_and_reported() -> None:
     """A cap of None would be an unbounded read on a 5,442-song library."""
     assert isinstance(MAX_SCAN_ITEMS, int)
     assert 0 < MAX_SCAN_ITEMS < 100_000
+
+
+def test_the_bulk_service_uses_this_same_definition() -> None:
+    """One definition, or the browse and the bulk editor disagree about what needs work.
+
+    The bulk selection and the harvest selection had their own inline test -- "not
+    Genres or not ProviderIds or not Overview" -- which was the same conflation this
+    module exists to remove, left behind when the library browse was fixed. Over a song
+    library that matched almost every item, on a screen whose output is a write.
+
+    Asserted structurally rather than by re-testing the logic: the service must read the
+    domain's predicate, and a second inline implementation is what this catches.
+    """
+    import inspect
+
+    from metaedit.service import bulk as bulk_service
+
+    source = inspect.getsource(bulk_service.select_items)
+    assert "is_missing(" in source, "the bulk selection must use the shared predicate"
+    assert "not item.Genres" not in source, "an inline missing-test has crept back in"
+
+
+def test_the_adapter_presents_a_jellyfin_dto_in_the_shape_the_filter_reads() -> None:
+    """The bridge between an adapter DTO and this domain predicate.
+
+    Two implementations of "has no genres" is exactly how the browse and the bulk editor
+    would come to disagree, so there is one predicate and a small adapter.
+    """
+    from metaedit.adapters.jellyfin.dto import BaseItemDto
+    from metaedit.service.bulk import _aspects_of
+
+    dto = BaseItemDto.model_validate(
+        {
+            "Id": "x",
+            "Name": "A Song",
+            "Type": "Audio",
+            "Genres": [],
+            "Tags": ["keep"],
+            "ProviderIds": {},
+            "Overview": "",
+        }
+    )
+    aspects = _aspects_of(dto)
+    assert aspects.genres == []
+    assert aspects.tags == ["keep"]
+    assert aspects.has_provider_ids is False
+    assert aspects.has_overview is False
+    # And the predicate accepts it, which is the point of the Protocol.
+    assert is_missing("Audio", frozenset({"genres"}), aspects) is True
+    assert is_missing("Audio", frozenset({"overview"}), aspects) is False, "songs ignore it"
