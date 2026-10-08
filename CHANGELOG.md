@@ -11,6 +11,30 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ## [Unreleased]
 
+### Fixed
+
+**Internal error text no longer reaches the browser.** Both streaming endpoints ended in a
+catch-all that put `str(exc)` straight into the SSE `error` frame. CodeQL found this
+(`py/stack-trace-exposure`) rather than a test, because the leak was invisible to every
+assertion the suite had: the frames were well-formed, they were simply candid about our
+internals.
+
+- An unexpected failure now reports a `code` and a short **reference id**. The traceback
+  and the original message go to the server log under that same reference, so a report
+  from a user still leads to the cause.
+- No credential was reachable this way, which was checked rather than assumed: Last.fm's
+  `httpx` failures collapse to a type name before escaping, so the API key in the query
+  string never reached a message; the Jellyfin key travels in a header and its bodies
+  already pass through `_sanitise_body`; and a failing Postgres connection renders with
+  the password masked. What did leak was internal topology — driver names, host and port.
+- Expected failures (`MetaeditError`) keep their own code and message. This was broken
+  too: only `ValidationError` and `NotFoundError` were passed through, so a rejected API
+  key (`LastfmAuthError`) or a reached storage cap (`ArchiveCapReached`) was reported as an
+  indistinguishable internal error.
+- Frame building moved to `api/sse.py`, so the streaming modules share one definition of
+  what is safe to disclose. `domain/errors.py` had promised this all along — "no upstream
+  payload ever reaches a client verbatim" — so this leaked by omission, not by decision.
+
 ## [0.0.1] - 2026-10-08
 
 The first release: a working Last.fm → Jellyfin metadata editor with a persistent local

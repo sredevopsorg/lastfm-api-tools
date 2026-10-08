@@ -12,7 +12,6 @@ sitting behind a reverse proxy.
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from typing import Annotated, Any, Literal
 
@@ -24,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from metaedit.api.deps import JellyfinDep
 from metaedit.api.items import FieldPolicyOverride, TagPolicyRequest, tag_policy_from
 from metaedit.api.schemas import BulkJobListResponse, BulkStreamEvent
+from metaedit.api.sse import error_frame, sse_frame
 from metaedit.db.session import get_session
 from metaedit.domain.errors import NotFoundError, ValidationError
 from metaedit.service import bulk
@@ -81,27 +81,21 @@ class BulkApplyRequest(BaseModel):
     confirm: bool = Field(default=False, description="must be true")
 
 
-def _sse(event: dict[str, Any]) -> str:
-    """One SSE frame. The event name mirrors the payload's `type`, so a client can
-    listen by name without parsing the body to decide what to do."""
-    name = str(event.get("type", "message"))
-    return f"event: {name}\ndata: {json.dumps(event, default=str)}\n\n"
-
-
 async def _stream(events: AsyncIterator[dict[str, Any]]) -> AsyncIterator[str]:
     """Wrap a service generator as SSE, ending with a terminating frame.
 
     Failures are reported in-band as an ``error`` event rather than by breaking the
-    stream, so a client that has already received per-item results keeps them.
+    stream, so a client that has already received per-item results keeps them. The
+    frame is built by ``api.sse``, which keeps internal detail out of it.
     """
     try:
         async for event in events:
-            yield _sse(event)
-    except (ValidationError, NotFoundError) as exc:
-        yield _sse({"type": "error", "code": exc.code, "message": exc.message})
+            yield sse_frame(event)
     except Exception as exc:
-        yield _sse({"type": "error", "code": "internal_error", "message": str(exc)})
-    yield _sse({"type": "done"})
+        # `error_frame` is what decides whether this exception's text is safe to send;
+        # a `MetaeditError` keeps its own code and message, anything else is generic.
+        yield sse_frame(error_frame(exc, code="internal_error"))
+    yield sse_frame({"type": "done"})
 
 
 @router.post(

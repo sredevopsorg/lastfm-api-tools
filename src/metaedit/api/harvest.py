@@ -18,7 +18,6 @@ rebuilt once at the end of a batch so candidates can resolve.
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from typing import Annotated, Any, Literal
 
@@ -29,9 +28,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.api.deps import JellyfinDep, LastfmDep
 from metaedit.api.schemas import HarvestItemResponse, HarvestStreamEvent
+from metaedit.api.sse import error_frame, sse_frame
 from metaedit.archive.reindex import reindex
 from metaedit.db.session import get_session
-from metaedit.domain.errors import NotFoundError, ValidationError
+from metaedit.domain.errors import NotFoundError
 from metaedit.service import bulk, harvest
 from metaedit.service.planning import normalise
 
@@ -61,10 +61,6 @@ class HarvestRequest(BaseModel):
     reindex: bool = Field(
         default=True, description="rebuild the derived layer so candidates can resolve"
     )
-
-
-def _sse(event: dict[str, Any]) -> str:
-    return f"event: {event.get('type', 'message')}\ndata: {json.dumps(event, default=str)}\n\n"
 
 
 @router.post("/items/{item_id}/harvest", response_model=HarvestItemResponse)
@@ -106,16 +102,15 @@ async def _stream(
     """
     try:
         async for event in events:
-            yield _sse(event)
+            yield sse_frame(event)
         if reindex_after:
             report = await reindex(session)
             await session.commit()
-            yield _sse({"type": "reindexed", **report.as_dict()["counts"]})
-    except ValidationError as exc:
-        yield _sse({"type": "error", "code": exc.code, "message": exc.message})
+            yield sse_frame({"type": "reindexed", **report.as_dict()["counts"]})
     except Exception as exc:
-        yield _sse({"type": "error", "code": "harvest_failed", "message": str(exc)})
-    yield _sse({"type": "done"})
+        # See `api/sse.py`: the frame builder decides what is safe to disclose.
+        yield sse_frame(error_frame(exc, code="harvest_failed"))
+    yield sse_frame({"type": "done"})
 
 
 @router.post(
