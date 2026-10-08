@@ -14,7 +14,10 @@ boundary, where it can be a 422 instead of a lie.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Literal
+
+from metaedit.domain.errors import ValidationError
 
 SortKey = Literal["name", "sort_name", "date_added", "year", "random"]
 SortOrder = Literal["asc", "desc"]
@@ -42,6 +45,56 @@ ORDERLESS_SORT_KEYS = frozenset({"random"})
 
 DEFAULT_SORT: SortKey = "sort_name"
 DEFAULT_ORDER: SortOrder = "asc"
+
+# Facet -> Jellyfin's query parameter. Both take a comma-separated list and **union** it;
+# live-verified on 12.2.0 that a list of two artists returns the sum of each alone
+# (ABBA=2, a-ha=1, both=3). The same parameter repeated unions too, which is why the API
+# joins rather than sending it several times: one spelling is one thing to get wrong.
+FACET_PARAMS: dict[str, str] = {"artist_ids": "ArtistIds", "album_ids": "AlbumIds"}
+
+# Which facets can narrow which media type.
+#
+# Not merely "the ones that make sense": Jellyfin *applies* the wrong pair and returns
+# **zero**. ``ArtistIds`` on ``IncludeItemTypes=MusicArtist`` returns 0 of 639, because no
+# artist item's own credit list contains its own id, and ``AlbumIds`` on a music album does
+# the same. An empty table that looks like missing data is the exact failure this project
+# treats as a defect, so the wrong pair is refused at the boundary instead of answered with
+# a zero that reads as a fact.
+FACET_KINDS: dict[str, frozenset[str]] = {
+    "artist_ids": frozenset({"album", "song"}),
+    "album_ids": frozenset({"song"}),
+}
+
+
+def facet_filters(
+    kind: str,
+    *,
+    artist_ids: Sequence[str] = (),
+    album_ids: Sequence[str] = (),
+) -> dict[str, str]:
+    """Jellyfin's facet parameters for one media type, refused where they cannot apply.
+
+    Ids are expected to have been shape-checked already (``domain.identifiers``): this
+    function decides *whether* a facet applies to a media type, not whether an id is one.
+    """
+    requested: Mapping[str, Sequence[str]] = {
+        "artist_ids": artist_ids,
+        "album_ids": album_ids,
+    }
+    filters: dict[str, str] = {}
+    for facet, values in requested.items():
+        if not values:
+            continue
+        allowed = FACET_KINDS[facet]
+        if kind not in allowed:
+            readable = " or ".join(sorted(allowed))
+            raise ValidationError(
+                f"{facet} does not narrow {kind}s: Jellyfin applies it and returns zero, "
+                f"which reads as an empty library rather than a filter that cannot work. "
+                f"It applies to {readable} only."
+            )
+        filters[FACET_PARAMS[facet]] = ",".join(values)
+    return filters
 
 
 def jellyfin_sort_by(sort: str, order: str) -> tuple[tuple[str, ...], str]:
