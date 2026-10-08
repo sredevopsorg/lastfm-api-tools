@@ -159,6 +159,46 @@ export type ArchiveAliasListResponse = Schemas['ArchiveAliasListResponse']
 export type BulkJobSummary = Schemas['BulkJobSummary']
 export type BulkJobListResponse = Schemas['BulkJobListResponse']
 
+// Genre blacklist and removal. Generated from the backend's own document like everything
+// else here: the settings screen shows the exact values an entry would match, so a
+// hand-written copy that drifted would misinform the operator about their own policy.
+export type GenreBlacklistResponse = Schemas['GenreBlacklistResponse']
+export type GenreBlacklistUpdate = Schemas['GenreBlacklistUpdate']
+export type BlacklistUpdateResponse = Schemas['UpdateResponse']
+export type BlacklistConflictView = Schemas['BlacklistConflictView']
+export type BlacklistPreviewResponse = Schemas['PreviewResponse']
+export type BlacklistPreviewEntry = Schemas['PreviewEntry']
+
+export type GenreRemovalRequest = Schemas['GenreRemovalRequest']
+export type GenreRemovalSelection = Schemas['GenreRemovalSelection']
+export type GenreRemovalApplyRequest = Schemas['GenreRemovalApplyRequest']
+export type RemovalJobSummary = Schemas['RemovalJobSummary']
+export type RemovalJobListResponse = Schemas['RemovalJobListResponse']
+export type GenreVocabularyResponse = Schemas['GenreVocabularyResponse']
+export type RemovalOutcome = Schemas['RemovalOutcomeView']
+export type RemovalItemEvent = Schemas['RemovalItemEvent']
+export type RemovalSummaryEvent = Schemas['RemovalSummaryEvent']
+export type EmptiedField = Schemas['EmptiedField']
+
+/**
+ * The frames a removal stream emits.
+ *
+ * Assembled by hand here because the backend declares the individual frames and a
+ * discriminated union is what a consumer switches on -- the same reason `BulkEvent` is
+ * assembled rather than aliased. The `type` discriminant is what makes each branch narrow.
+ */
+export type RemovalEvent =
+  | RemovalItemEvent
+  | BulkAppliedEvent
+  | BulkFailedEvent
+  | BulkRevertedEvent
+  | RemovalSummaryEvent
+  | BulkErrorEvent
+  | { type: 'done' }
+
+/** Which arrays a removal may act on. Closed on the server; mirrored for the UI. */
+export type RemovalField = 'Genres' | 'Tags'
+
 // The SSE event union. The backend declares the individual frames; the discriminated
 // union is assembled here because that is what a consumer switches on.
 export type BulkItemEvent = Schemas['BulkItemEvent']
@@ -249,6 +289,14 @@ export const api = {
     request<ArchiveTagListResponse>(`/api/archive/tags${queryString(query)}`),
   post: <T>(path: string, body?: unknown) => {
     const init: RequestInit = { method: 'POST' }
+    if (body !== undefined) init.body = JSON.stringify(body)
+    return request<T>(path, init)
+  },
+  // The blacklist is saved with PUT because it *replaces* the stored list: the screen is a
+  // textarea, so what the operator sees on save is what they mean. A POST that merged
+  // would make deleting an entry impossible.
+  put: <T>(path: string, body?: unknown) => {
+    const init: RequestInit = { method: 'PUT' }
     if (body !== undefined) init.body = JSON.stringify(body)
     return request<T>(path, init)
   },

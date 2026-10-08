@@ -1407,6 +1407,18 @@ export interface components {
             withheld: components["schemas"]["FieldChangeView"][];
         };
         /**
+         * EmptiedField
+         * @description A field a removal would leave empty, named so the UI can warn about it.
+         */
+        EmptiedField: {
+            /** Field */
+            field: string;
+            /** Item Id */
+            item_id: string;
+            /** Name */
+            name: string;
+        };
+        /**
          * FieldChangeView
          * @description One proposed change to one writable field.
          */
@@ -1980,6 +1992,35 @@ export interface components {
             /** Duration Ms */
             duration_ms: number;
         };
+        /**
+         * RemovalItemEvent
+         * @description One item in a removal diff, carrying the per-field outcomes.
+         *
+         *     Extends ``BulkItemEvent`` rather than replacing it, so the shared fields -- and the
+         *     ``diff`` the review UI already knows how to render -- keep one definition.
+         */
+        RemovalItemEvent: {
+            /** Applicable */
+            applicable: boolean;
+            diff: components["schemas"]["DiffResponse"];
+            /** Index */
+            index: number;
+            /** Item Id */
+            item_id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Removals */
+            removals?: components["schemas"]["RemovalOutcomeView"][];
+            /** Skipped Reason */
+            skipped_reason: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "item";
+        };
         /** RemovalJobListResponse */
         RemovalJobListResponse: {
             /** Count */
@@ -2014,6 +2055,68 @@ export interface components {
             removing?: string | null;
             /** Skipped */
             skipped: number;
+        };
+        /**
+         * RemovalOutcomeView
+         * @description What removing one target from one field of one item would do.
+         *
+         *     Mirrors ``domain.genre_removal.RemovalOutcome.as_dict()``. Declared rather than left as
+         *     a bare dict because the UI renders ``removed`` and ``emptied`` by name: a shape the
+         *     document does not describe is one the SPA has to guess at, and a guess cannot be
+         *     checked against the server.
+         */
+        RemovalOutcomeView: {
+            /** After */
+            after: string[];
+            /** Before */
+            before: string[];
+            /** Changed */
+            changed: boolean;
+            /** Emptied */
+            emptied: boolean;
+            /** Field */
+            field: string;
+            /** Removed */
+            removed: string[];
+            /** Target */
+            target: string;
+        };
+        /**
+         * RemovalSummaryEvent
+         * @description The closing frame of a removal run, which additionally knows the target.
+         */
+        RemovalSummaryEvent: {
+            /** Applicable */
+            applicable: number | null;
+            /** Applied */
+            applied: number | null;
+            /** Batch Id */
+            batch_id: string | null;
+            /** Batch Revert */
+            batch_revert: string | null;
+            /** Emptied */
+            emptied?: components["schemas"]["EmptiedField"][];
+            /** Failed */
+            failed: number | null;
+            /** Failures */
+            failures: {
+                [key: string]: unknown;
+            }[];
+            /** Items */
+            items: number | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Removing */
+            removing?: string | null;
+            /** Reverted */
+            reverted: number | null;
+            /** Skipped */
+            skipped: number | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "summary";
         };
         /**
          * ScanInfo
@@ -2456,7 +2559,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BulkItemEvent"] | components["schemas"]["BulkAppliedEvent"] | components["schemas"]["BulkFailedEvent"] | components["schemas"]["BulkRevertedEvent"] | components["schemas"]["BulkSummaryEvent"] | components["schemas"]["BulkErrorEvent"];
+                    "application/json": components["schemas"]["RemovalItemEvent"] | components["schemas"]["BulkAppliedEvent"] | components["schemas"]["BulkFailedEvent"] | components["schemas"]["BulkRevertedEvent"] | components["schemas"]["RemovalSummaryEvent"] | components["schemas"]["BulkErrorEvent"];
                     "text/event-stream": unknown;
                 };
             };
@@ -2490,7 +2593,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BulkItemEvent"] | components["schemas"]["BulkAppliedEvent"] | components["schemas"]["BulkFailedEvent"] | components["schemas"]["BulkRevertedEvent"] | components["schemas"]["BulkSummaryEvent"] | components["schemas"]["BulkErrorEvent"];
+                    "application/json": components["schemas"]["RemovalItemEvent"] | components["schemas"]["BulkAppliedEvent"] | components["schemas"]["BulkFailedEvent"] | components["schemas"]["BulkRevertedEvent"] | components["schemas"]["RemovalSummaryEvent"] | components["schemas"]["BulkErrorEvent"];
                     "text/event-stream": unknown;
                 };
             };

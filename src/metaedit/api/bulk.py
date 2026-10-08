@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Sequence
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +31,7 @@ from metaedit.api.schemas import (
     BulkStreamEvent,
     GenreVocabularyResponse,
     RemovalJobListResponse,
+    RemovalStreamEvent,
 )
 from metaedit.api.sse import error_frame, sse_frame
 from metaedit.config import Settings, get_settings
@@ -330,7 +331,7 @@ def _removal_selection(
     "/remove-genre/diff",
     responses={
         200: {
-            "model": BulkStreamEvent,
+            "model": RemovalStreamEvent,
             "description": "Server-Sent Events, one frame per item.",
             "content": {"text/event-stream": {}},
         }
@@ -369,7 +370,7 @@ async def remove_genre_diff(
     "/remove-genre/apply",
     responses={
         200: {
-            "model": BulkStreamEvent,
+            "model": RemovalStreamEvent,
             "description": "Server-Sent Events, one frame per item.",
             "content": {"text/event-stream": {}},
         }
@@ -412,14 +413,24 @@ async def list_removal_jobs() -> dict[str, Any]:
 
 
 @router.get("/genres", response_model=GenreVocabularyResponse)
-async def library_genres(client: JellyfinDep) -> dict[str, Any]:
+async def library_genres(
+    client: JellyfinDep,
+    item_kind: Annotated[
+        Literal["MusicArtist", "MusicAlbum", "Audio"],
+        Query(description="which media type's genre set to list; the sets differ"),
+    ] = "MusicArtist",
+) -> dict[str, Any]:
     """The genre vocabulary this library actually uses.
 
     Read from Jellyfin's genre entities rather than by scanning items: it is the same list
-    the server's own genre filter offers, so what the operator picks here is what they
-    would pick there. Read-only.
+    the server's own genre filter offers (39 entries for this library's artists), so what
+    the operator picks here is what they would pick there. Read-only.
+
+    Scoped per media type because the sets genuinely differ -- an album-only genre is not
+    an artist genre, and listing one type's genres for another would offer a value that
+    matches nothing.
     """
-    entities = await client.genres()
+    entities = await client.genres(item_kind=item_kind)
     names = sorted({entity.Name for entity in entities if entity.Name})
     return {
         "genres": names,

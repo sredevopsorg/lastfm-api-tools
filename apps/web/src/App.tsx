@@ -4,6 +4,8 @@ import { Editor } from './routes/Editor'
 import { Bulk } from './routes/Bulk'
 import { Review } from './routes/Review'
 import { Archive } from './routes/Archive'
+import { GenreRemoval } from './routes/GenreRemoval'
+import { Settings } from './routes/Settings'
 import { NotFound } from './routes/NotFound'
 
 export function App() {
@@ -17,7 +19,9 @@ export function App() {
             Library
           </NavLink>
           <NavLink to="/bulk">Bulk</NavLink>
+          <NavLink to="/remove-genre">Remove genre</NavLink>
           <NavLink to="/archive">Archive</NavLink>
+          <NavLink to="/settings">Settings</NavLink>
         </nav>
       </header>
       <Routes>
@@ -25,7 +29,9 @@ export function App() {
         <Route path="/edit/:itemId" element={<Editor />} />
         <Route path="/review" element={<Review />} />
         <Route path="/bulk" element={<Bulk />} />
+        <Route path="/remove-genre" element={<GenreRemoval />} />
         <Route path="/archive" element={<Archive />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </div>

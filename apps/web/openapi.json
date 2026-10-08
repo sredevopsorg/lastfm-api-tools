@@ -2007,6 +2007,30 @@
         "title": "DiffResponse",
         "type": "object"
       },
+      "EmptiedField": {
+        "description": "A field a removal would leave empty, named so the UI can warn about it.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "name",
+          "field"
+        ],
+        "title": "EmptiedField",
+        "type": "object"
+      },
       "FieldChangeView": {
         "description": "One proposed change to one writable field.",
         "properties": {
@@ -3400,6 +3424,69 @@
         "title": "ReindexResponse",
         "type": "object"
       },
+      "RemovalItemEvent": {
+        "description": "One item in a removal diff, carrying the per-field outcomes.\n\nExtends ``BulkItemEvent`` rather than replacing it, so the shared fields -- and the\n``diff`` the review UI already knows how to render -- keep one definition.",
+        "properties": {
+          "applicable": {
+            "title": "Applicable",
+            "type": "boolean"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/DiffResponse"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "removals": {
+            "items": {
+              "$ref": "#/components/schemas/RemovalOutcomeView"
+            },
+            "title": "Removals",
+            "type": "array"
+          },
+          "skipped_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped Reason"
+          },
+          "type": {
+            "const": "item",
+            "default": "item",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "item_id",
+          "name",
+          "kind",
+          "skipped_reason",
+          "applicable",
+          "diff"
+        ],
+        "title": "RemovalItemEvent",
+        "type": "object"
+      },
       "RemovalJobListResponse": {
         "properties": {
           "count": {
@@ -3474,6 +3561,209 @@
           "applied"
         ],
         "title": "RemovalJobSummary",
+        "type": "object"
+      },
+      "RemovalOutcomeView": {
+        "description": "What removing one target from one field of one item would do.\n\nMirrors ``domain.genre_removal.RemovalOutcome.as_dict()``. Declared rather than left as\na bare dict because the UI renders ``removed`` and ``emptied`` by name: a shape the\ndocument does not describe is one the SPA has to guess at, and a guess cannot be\nchecked against the server.",
+        "properties": {
+          "after": {
+            "items": {
+              "type": "string"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "before": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Before",
+            "type": "array"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "emptied": {
+            "title": "Emptied",
+            "type": "boolean"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "target",
+          "before",
+          "after",
+          "removed",
+          "changed",
+          "emptied"
+        ],
+        "title": "RemovalOutcomeView",
+        "type": "object"
+      },
+      "RemovalSummaryEvent": {
+        "description": "The closing frame of a removal run, which additionally knows the target.",
+        "properties": {
+          "applicable": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applicable"
+          },
+          "applied": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied"
+          },
+          "batch_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "batch_revert": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Revert"
+          },
+          "emptied": {
+            "items": {
+              "$ref": "#/components/schemas/EmptiedField"
+            },
+            "title": "Emptied",
+            "type": "array"
+          },
+          "failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed"
+          },
+          "failures": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "removing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removing"
+          },
+          "reverted": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverted"
+          },
+          "skipped": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped"
+          },
+          "type": {
+            "const": "summary",
+            "default": "summary",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "batch_id",
+          "items",
+          "applicable",
+          "skipped",
+          "applied",
+          "failed",
+          "reverted",
+          "failures",
+          "batch_revert"
+        ],
+        "title": "RemovalSummaryEvent",
         "type": "object"
       },
       "ScanInfo": {
@@ -4342,15 +4632,15 @@
                       "applied": "#/components/schemas/BulkAppliedEvent",
                       "error": "#/components/schemas/BulkErrorEvent",
                       "failed": "#/components/schemas/BulkFailedEvent",
-                      "item": "#/components/schemas/BulkItemEvent",
+                      "item": "#/components/schemas/RemovalItemEvent",
                       "reverted": "#/components/schemas/BulkRevertedEvent",
-                      "summary": "#/components/schemas/BulkSummaryEvent"
+                      "summary": "#/components/schemas/RemovalSummaryEvent"
                     },
                     "propertyName": "type"
                   },
                   "oneOf": [
                     {
-                      "$ref": "#/components/schemas/BulkItemEvent"
+                      "$ref": "#/components/schemas/RemovalItemEvent"
                     },
                     {
                       "$ref": "#/components/schemas/BulkAppliedEvent"
@@ -4362,7 +4652,7 @@
                       "$ref": "#/components/schemas/BulkRevertedEvent"
                     },
                     {
-                      "$ref": "#/components/schemas/BulkSummaryEvent"
+                      "$ref": "#/components/schemas/RemovalSummaryEvent"
                     },
                     {
                       "$ref": "#/components/schemas/BulkErrorEvent"
@@ -4416,15 +4706,15 @@
                       "applied": "#/components/schemas/BulkAppliedEvent",
                       "error": "#/components/schemas/BulkErrorEvent",
                       "failed": "#/components/schemas/BulkFailedEvent",
-                      "item": "#/components/schemas/BulkItemEvent",
+                      "item": "#/components/schemas/RemovalItemEvent",
                       "reverted": "#/components/schemas/BulkRevertedEvent",
-                      "summary": "#/components/schemas/BulkSummaryEvent"
+                      "summary": "#/components/schemas/RemovalSummaryEvent"
                     },
                     "propertyName": "type"
                   },
                   "oneOf": [
                     {
-                      "$ref": "#/components/schemas/BulkItemEvent"
+                      "$ref": "#/components/schemas/RemovalItemEvent"
                     },
                     {
                       "$ref": "#/components/schemas/BulkAppliedEvent"
@@ -4436,7 +4726,7 @@
                       "$ref": "#/components/schemas/BulkRevertedEvent"
                     },
                     {
-                      "$ref": "#/components/schemas/BulkSummaryEvent"
+                      "$ref": "#/components/schemas/RemovalSummaryEvent"
                     },
                     {
                       "$ref": "#/components/schemas/BulkErrorEvent"
