@@ -11,6 +11,105 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-10-08
+
+### Added
+
+**Filtering, pagination and sorting on the browse screens.** `/api/items` gains `sort`,
+`order` and a per-media-type `missing` filter; the Library and Archive tables gain real
+paging, sortable headers, removable filter chips and a scan note. Every part of a browse
+query now lives in the URL, so a refresh, a back button and a shared link mean the same
+thing.
+
+The sort vocabulary is an **allow-list**, and that is load-bearing rather than tidy.
+Live-verified on Jellyfin 12.2.0: an unrecognised `sortBy` value is *accepted and silently
+ignored*, falling back to the default order. A pass-through would let the UI present items
+in one order while claiming another, with nothing anywhere reporting a problem. Every key
+in the map was verified to change the returned order on a real server, not inferred from
+the field names:
+
+```
+name -> Name      sort_name -> SortName    date_added -> DateCreated
+year -> ProductionYear                     random -> Random
+```
+
+Three response fields exist so the UI cannot mislead about what it is showing: `total`
+counts the query rather than the page, `sort`/`order` are echoed back so the UI renders
+what the server *did*, and `scan` reports what a filter read to produce its count.
+
+### Fixed
+
+**Archive paging silently lost a row while showing another twice.** `ORDER BY name` is not
+a total order — 8 album rows and 2 track rows share a name with another row — and `OFFSET`
+paging over it is incorrect by construction. Measured against a real archive:
+
+```
+109 rows fetched, 108 distinct
+duplicated across pages: [90]   'Corazones' -- Jorge Gonzalez
+never appearing:         [8]    'Corazones' -- Los Prisioneros
+```
+
+The count said 109, the walk yielded 109 entries, and one of them was a duplicate, so the
+missing row was invisible from the UI. Every ordering now ends with `id`, which the reindex
+assigns deterministically, so the tiebreaker is stable across rebuilds. Confirmed
+deterministic rather than flaky: five runs of each ordering gave 108 distinct with
+duplicate id 90 for `ORDER BY name`, and 109 distinct with none for `ORDER BY name, id`.
+
+**The missing-metadata filter was useless for songs.** A song without an `Overview` is the
+normal state of a song, and the old boolean counted that as missing metadata:
+
+```
+MusicArtist  500 items: overview in 254, provider ids in 414, genres in 392
+Audio        500 items: overview in   1, provider ids in  69, genres in 314
+```
+
+So over a song library it reported **5,441 of 5,442** items incomplete — a wall of red that
+buried the 1,466 songs whose missing genres are actually fixable. It was not a filter that
+was slightly off; it could not be fixed by filtering harder. The filter is now a
+per-media-type definition, and the bulk and harvest selections use the same one: they had
+kept their own inline copy of the old test, on a screen whose output is a write.
+
+Jellyfin cannot express this for music (`Filters=IsMissing` is accepted and ignored), so
+matching items means reading them. That scan is capped, and **the cap is reported**:
+`?kind=song&missing=genres` answers "679 matched from 2,000 checked, truncated" in 1.8s, which
+is a labelled lower bound rather than a total that looks complete and is not.
+
+**The library's total described a set the table could not show.** The screen fetched one
+page of 200 and filtered in the browser, so the header read "641 artists" above 200 rows;
+with 5,442 songs, 96% of the library was unreachable and nothing said so.
+
+**"Select all" meant "select the first page".** On a path that feeds a write, an operator
+could believe a library-wide edit was queued when a fifth of it was. The control now says
+"Select these 50", reports how many of the selection are on the current page, and keeps a
+selection across pages — selecting across pages is why paging exists — while still clearing
+it when the *query* changes, because a selection carried into a different result set would
+attach writes to items nobody looked at.
+
+**Batch filtering over songs.** `missing_metadata` on the bulk and harvest selections was
+replaced by the same `missing` vocabulary as the browse, so the three surfaces cannot
+disagree about which items need work.
+
+### Notes
+
+- `NULLS LAST` on the nullable sort keys, argued from the data rather than from theory:
+  **all 383 artist rows have a NULL `listeners`**, against 0 of 109 albums. Postgres
+  defaults to `NULLS FIRST` on `DESC`, so "sort artists by listeners, descending" would
+  have led with every row that has no listener count.
+- **No sort tiebreaker is sent to Jellyfin**, and this is a deliberate limitation. A second
+  key could not be verified to do anything: appending `Id`, or even a nonsense key,
+  produced byte-identical responses on a live 12.2.0 server. Adding a key that does nothing
+  reads as a guarantee it is not. The browse is safe today — all 6,583 items walk without
+  loss, and ten identical requests return one identical order — but that guarantee is the
+  server's, not ours. Recorded in `domain/browse.py`.
+- **The end-to-end specs are typechecked for the first time.** `tsconfig.json` includes only
+  `src`, and Playwright transpiles without checking, so every spec in `e2e/` was the only
+  TypeScript in the app that nothing verified. Adding `tsconfig.e2e.json` found seven
+  strict-mode errors in the pre-existing specs, including an unused fixture.
+- **The frontend has unit tests**, run by node's native TypeScript stripping so that
+  paging arithmetic needs no test runner. `scripts/run-tests.mjs` treats "no test files
+  matched" as a failure: `node --test` exits 0 on an empty glob, so a renamed file would
+  otherwise have left the build green while checking nothing.
+
 ## [0.0.3] - 2026-10-08
 
 ### Fixed
@@ -317,7 +416,8 @@ recorded because the *class* of mistake is more instructive than the instance.
 - The Last.fm Terms of Service cap stored Last.fm Data at 100 MB. Usage is measured and
   shown; nothing is deleted automatically, and reaching the cap refuses new writes instead.
 
-[Unreleased]: https://github.com/sredevopsorg/metaedit/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/sredevopsorg/metaedit/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.4
 [0.0.3]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.3
 [0.0.2]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.2
 [0.0.1]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.1
