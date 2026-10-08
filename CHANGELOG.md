@@ -13,6 +13,37 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ### Changed
 
+**The README is now a landing page; the detail moved into `docs/`.** It had grown to 500
+lines with no order to them — the endpoint table came before the paragraph explaining why
+writing is safe, hardening sat under "Status", and the first thing a reader met was a
+status table rather than what the tool does. It is 98 lines now: what it does, the four
+write guarantees, a quickstart, and a table of where to read more.
+
+Four documents took the rest, split by who needs them rather than by where the text used to
+be: [`docs/development.md`](docs/development.md) for a source checkout, checks and tests;
+[`docs/api.md`](docs/api.md) for the endpoints and the write-safety rules;
+[`docs/operations.md`](docs/operations.md) for the archive, the CLI and retention;
+[`docs/architecture.md`](docs/architecture.md) for status, the UI, layering and deviations.
+
+Nothing was dropped — every section of the old README is accounted for in one of them —
+but two claims were **deleted rather than moved**, because they had been false for a while:
+
+- "the browser and editor screens are not built yet, and nothing yet maps Last.fm data onto
+  Jellyfin fields (that is phase 4)" — added when phases 0–2 were the whole project, and
+  never revised. Seven later phases touched the same file without contradicting it.
+- "their tables exist but nothing populates them yet", about the derived layer, from the
+  same revision and equally false since `reindex` landed.
+
+Both survived because each phase that should have deleted them edited a *different* part of
+the README. A stale claim inside a file someone is actively maintaining is not caught by
+that maintenance, which is the argument for splitting the document in the first place.
+
+Also corrected while moving: the README pointed at a *Testing* section that does not exist;
+the documented route list was missing `/review`; "nine Playwright specs" undercounted the
+file's fifteen; and `.env.example` shipped a `LASTFM_USER_AGENT` naming version `0.1.0` and
+a placeholder repository, two releases stale, with a comment that implied leaving it blank
+was equivalent to the default — it is not, it sends no `User-Agent` at all.
+
 **Postgres-backed tests clone a migrated template instead of migrating per test.** Every
 one of them ran `alembic upgrade head` in a subprocess: most of a second spent importing
 Python and replaying a migration chain whose result is identical every single time. It was
