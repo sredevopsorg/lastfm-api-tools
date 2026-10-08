@@ -22,6 +22,18 @@ import { expect, test } from '@playwright/test'
 
 const STUB = process.env.E2E_STUB_URL ?? 'http://127.0.0.1:8096'
 
+/**
+ * The pager under the table.
+ *
+ * Every table that pages now shows the control twice -- above and below -- so an unscoped
+ * `getByRole('navigation', { name: BOTTOM })` is a strict-mode violation, and
+ * an unscoped `Next →` matches two buttons. Both were clean before this feature, which is
+ * itself the argument for naming the landmarks: a test that cannot say *which* pager it
+ * meant was never checking the one it thought.
+ */
+const BOTTOM = 'items pagination (bottom)'
+const TOP = 'items pagination (top)'
+
 /** The library the stub holds, so a test can state the size it expects. */
 async function librarySize(request: import('@playwright/test').APIRequestContext) {
   const response = await request.get(`${STUB}/__writes`)
@@ -45,7 +57,7 @@ test('the total counts the whole result, not the page', async ({ page, request }
 
   await expect(page.getByText(`${artists} artists match`)).toBeVisible({ timeout: 15_000 })
   // One page is 50, and the pager has to say what part of the whole it is showing.
-  await expect(page.getByRole('navigation', { name: 'items pagination' })).toContainText(
+  await expect(page.getByRole('navigation', { name: BOTTOM })).toContainText(
     `1–50 of ${artists}`,
   )
   await expect(page.getByRole('row')).toHaveCount(51) // 50 rows plus the header
@@ -72,7 +84,7 @@ test('paging visits every artist exactly once, including the duplicate names', a
   // that rendered nothing at all.
   const seen: string[] = []
   for (;;) {
-    const label = await page.getByRole('navigation', { name: 'items pagination' }).innerText()
+    const label = await page.getByRole('navigation', { name: BOTTOM }).innerText()
     const pages = Number(label.match(/page (\d+) of (\d+)/)?.[2] ?? '0')
     const current = Number(label.match(/page (\d+) of (\d+)/)?.[1] ?? '0')
 
@@ -82,10 +94,10 @@ test('paging visits every artist exactly once, including the duplicate names', a
     }
 
     if (current >= pages) break
-    await page.getByRole('button', { name: 'Next →' }).click()
+    await page.getByRole('button', { name: 'Next →' }).last().click()
     // Wait for the pager itself to move, so the next read is of the next page.
     await expect(
-      page.getByRole('navigation', { name: 'items pagination' }),
+      page.getByRole('navigation', { name: BOTTOM }),
     ).toContainText(`page ${current + 1} of`)
   }
 
@@ -100,27 +112,56 @@ test('paging visits every artist exactly once, including the duplicate names', a
 
 test('the pager is disabled at the ends rather than wrapping', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('navigation', { name: 'items pagination' })).toBeVisible({
+  await expect(page.getByRole('navigation', { name: BOTTOM })).toBeVisible({
     timeout: 15_000,
   })
 
   // On page 1 there is nothing before, and it must be genuinely disabled -- a control that
   // is styled as disabled but still clickable is how a list silently reorders.
-  await expect(page.getByRole('button', { name: '← Previous' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Next →' })).toBeEnabled()
+  //
+  // Both pagers, not just one: they are rendered from the same props, so a divergence would
+  // mean the two controls disagree about where in the result set the operator is.
+  await expect(page.getByRole('button', { name: '← Previous' })).toHaveCount(2)
+  await expect(page.getByRole('button', { name: '← Previous' }).first()).toBeDisabled()
+  await expect(page.getByRole('button', { name: '← Previous' }).last()).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Next →' }).first()).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Next →' }).last()).toBeEnabled()
+})
+
+test('the pager appears above the table as well as below it', async ({ page }) => {
+  // Requested because a long page is read from the middle: an operator who has scrolled to
+  // the last row should not have to travel back up to move on. Asserted by position rather
+  // than by count alone -- two controls that both render below the table would satisfy a
+  // count and still leave the operator scrolling.
+  await page.goto('/')
+  await expect(page.getByRole('navigation', { name: TOP })).toBeVisible({ timeout: 15_000 })
+
+  const top = await page.getByRole('navigation', { name: TOP }).boundingBox()
+  const rows = await page.getByRole('table').first().boundingBox()
+  const bottom = await page.getByRole('navigation', { name: BOTTOM }).boundingBox()
+  expect(top).not.toBeNull()
+  expect(rows).not.toBeNull()
+  expect(bottom).not.toBeNull()
+
+  expect(top!.y).toBeLessThan(rows!.y)
+  expect(bottom!.y).toBeGreaterThan(rows!.y)
+  // And they agree about the page, which is the only thing that makes two controls one
+  // control rather than two sources of truth.
+  await expect(page.getByRole('navigation', { name: TOP })).toContainText('page 1 of')
+  await expect(page.getByRole('navigation', { name: BOTTOM })).toContainText('page 1 of')
 })
 
 test('the page is in the URL, so a refresh and a back button agree', async ({ page }) => {
   // URL-owned state is what makes a link shareable and a refresh predictable. If the page
   // lived in component state, this would reset to page 1.
   await page.goto('/?start=50')
-  await expect(page.getByRole('navigation', { name: 'items pagination' })).toContainText(
+  await expect(page.getByRole('navigation', { name: BOTTOM })).toContainText(
     'page 2 of',
     { timeout: 15_000 },
   )
 
   await page.reload()
-  await expect(page.getByRole('navigation', { name: 'items pagination' })).toContainText(
+  await expect(page.getByRole('navigation', { name: BOTTOM })).toContainText(
     'page 2 of',
   )
 })
@@ -148,13 +189,13 @@ test('sorting resets to the first page', async ({ page }) => {
   // Staying on page 2 of a differently-ordered set shows rows nobody navigated to, and an
   // empty table when the set shrank.
   await page.goto('/?start=50')
-  await expect(page.getByRole('navigation', { name: 'items pagination' })).toContainText(
+  await expect(page.getByRole('navigation', { name: BOTTOM })).toContainText(
     'page 2 of',
     { timeout: 15_000 },
   )
 
   await page.getByLabel('descending').check()
-  await expect(page.getByRole('navigation', { name: 'items pagination' })).toContainText(
+  await expect(page.getByRole('navigation', { name: BOTTOM })).toContainText(
     'page 1 of',
   )
 })
@@ -205,7 +246,7 @@ test('selecting on one page keeps the selection on the next', async ({ page }) =
   await page.getByLabel('Select Filler Artist 001').check()
   await expect(page.getByText('1 selected')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Next →' }).click()
+  await page.getByRole('button', { name: 'Next →' }).last().click()
   await expect(page.getByText('1 selected')).toBeVisible()
   // ...and it says how many of the selection are on the page being looked at.
   await expect(page.getByText('(0 on this page)')).toBeVisible()
@@ -243,7 +284,8 @@ test('the archive entity table pages without losing a row', async ({ page }) => 
   await page.goto('/archive')
   await expect(page.getByRole('heading', { name: 'Stored entities' })).toBeVisible()
 
-  const pager = page.getByRole('navigation', { name: 'stored entities pagination' })
+  // Named, because the archive table now shows the control twice.
+  const pager = page.getByRole('navigation', { name: 'stored entities pagination (bottom)' })
   await expect(pager).toContainText(/of [1-9]/, { timeout: 15_000 })
   const label = await pager.innerText()
   const total = Number(label.match(/of ([\d,]+)/)?.[1]?.replace(/,/g, '') ?? '0')
@@ -258,7 +300,7 @@ test('the archive entity table pages without losing a row', async ({ page }) => 
       if (await button.count()) seen.push((await button.textContent()) ?? '')
     }
     if (index + 1 < pages) {
-      await page.getByRole('button', { name: 'Next →' }).click()
+      await page.getByRole('button', { name: 'Next →' }).last().click()
       await expect(pager).toContainText(`page ${index + 2} of`)
     }
   }
@@ -268,14 +310,21 @@ test('the archive entity table pages without losing a row', async ({ page }) => 
 })
 
 test('the archive says plainly when a kind holds nothing', async ({ page }) => {
-  // The seed archives one artist and no albums, so this is the empty state rather than a
-  // failure -- and it must read as "nothing stored", not as a broken table. An empty
-  // result that renders as a blank region is indistinguishable from a request in flight.
+  // An empty result must read as "nothing stored" rather than as a broken table: an empty
+  // region is indistinguishable from a request still in flight.
+  //
+  // Asserted through the *search* box rather than by relying on a kind being empty. The
+  // seed archives one artist and no albums, which is what this test originally leaned on --
+  // but `beforeEach` resets the stub Jellyfin and not the archive database, and a spec in
+  // another file harvests an album into it. So the "albums is empty" premise held only when
+  // this file ran first, and the failure looked like a bug in the empty state rather than
+  // in the test's assumption. Searching for something that cannot exist makes the condition
+  // this test is actually about, independently of what any other spec has archived.
   await page.goto('/archive')
   await expect(page.getByRole('heading', { name: 'Stored entities' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'albums' }).click()
-  await expect(page.getByText(/Nothing stored yet|No stored entity matches/)).toBeVisible({
-    timeout: 15_000,
-  })
+  const filter = page.getByLabel('Filter entities by name')
+  await filter.fill('nothing-is-stored-under-this-name')
+  await filter.press('Enter')
+  await expect(page.getByText(/No stored entity matches/)).toBeVisible({ timeout: 15_000 })
 })

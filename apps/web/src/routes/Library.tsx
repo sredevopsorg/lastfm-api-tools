@@ -709,6 +709,7 @@ export function Library() {
           </div>
 
           <Pagination
+            label="items pagination (bottom)"
             startIndex={startIndex}
             pageSize={PAGE_SIZE}
             returned={rows.length}

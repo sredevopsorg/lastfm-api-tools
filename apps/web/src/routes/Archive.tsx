@@ -310,8 +310,7 @@ export function Archive() {
               unit="stored entities"
               onStartIndex={(next) => setPage(Math.floor(next / PAGE_SIZE) + 1)}
             />
-          </>
-        )}
+          </>        )}
       </div>
 
       {detail.data && (
