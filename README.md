@@ -326,9 +326,12 @@ image are pinned to the versions used locally, and the workflow asserts the
 service really is Postgres 18, because a silent fallback to another major version
 would invalidate the partition tests.
 
-Integration tests need a reachable Postgres 18; they create and drop a disposable
-database per test, so they never touch the data in `metaedit`. Point them
-elsewhere with `METAEDIT_TEST_DATABASE_URL` (default
+Integration tests need a reachable Postgres 18. Each test gets a disposable
+database of its own, cloned from a template that is migrated once per session, so
+the migration chain runs once instead of once per test. They never touch the data
+in `metaedit` itself: the template and the per-test copies are created and
+dropped by the suite. Point it at another server with
+`METAEDIT_TEST_DATABASE_URL` (default
 `postgresql+psycopg://metaedit:metaedit@localhost:5432/metaedit`).
 
 ### Live tests
