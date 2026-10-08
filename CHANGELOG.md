@@ -11,6 +11,8 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-10-08
+
 ### Fixed
 
 **Editing any item with a `PremiereDate` failed with an internal error.** One wrong
@@ -468,7 +470,8 @@ recorded because the *class* of mistake is more instructive than the instance.
 - The Last.fm Terms of Service cap stored Last.fm Data at 100 MB. Usage is measured and
   shown; nothing is deleted automatically, and reaching the cap refuses new writes instead.
 
-[Unreleased]: https://github.com/sredevopsorg/metaedit/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/sredevopsorg/metaedit/compare/v0.0.5...HEAD
+[0.0.5]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.5
 [0.0.4]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.4
 [0.0.3]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.3
 [0.0.2]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.2
