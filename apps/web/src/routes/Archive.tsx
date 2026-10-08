@@ -219,6 +219,18 @@ export function Archive() {
             <p className="muted small">
               {entities.data.total} stored {kind}s
             </p>
+            {/* Twice, as on the library screen: an operator reading the middle of a page
+                should not have to travel back up to move on. The labels differ so the two
+                landmarks are not ambiguous, to a screen reader or to a test. */}
+            <Pagination
+              label="stored entities pagination (top)"
+              startIndex={(page - 1) * PAGE_SIZE}
+              pageSize={PAGE_SIZE}
+              returned={entities.data.items.length}
+              total={entities.data.total}
+              unit="stored entities"
+              onStartIndex={(next) => setPage(Math.floor(next / PAGE_SIZE) + 1)}
+            />
             <div className="table-wrap">
             <table className="grid">
               <thead>
@@ -290,6 +302,7 @@ export function Archive() {
             </table>
             </div>
             <Pagination
+              label="stored entities pagination (bottom)"
               startIndex={(page - 1) * PAGE_SIZE}
               pageSize={PAGE_SIZE}
               returned={entities.data.items.length}

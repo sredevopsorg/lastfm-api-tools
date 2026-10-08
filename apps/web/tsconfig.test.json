@@ -9,7 +9,8 @@
   },
   "include": [
     "src/**/*.test.ts",
-    "src/components/paging.ts"
+    "src/components/paging.ts",
+    "src/components/facet_rules.ts"
   ],
   "exclude": []
 }

@@ -12,6 +12,11 @@ import {
 } from '../api/client'
 import { ErrorNote } from '../components/ui'
 import { FilterChips, Pagination, ScanNote, SortHeader } from '../components/table'
+import {
+  SelectionFilters,
+  type FacetValues,
+} from '../components/facet_controls'
+import { cleanPatterns, facetsFor, validIds } from '../components/facet_rules'
 import type { SortState } from '../components/paging'
 
 const KINDS: { value: SelectionKind; label: string }[] = [
@@ -124,6 +129,16 @@ export function Library() {
   const aspects = params
     .getAll('missing')
     .filter((aspect) => ASPECTS_BY_KIND[kind].some((entry) => entry.value === aspect))
+  // Ids from the URL are shape-checked and the unusable ones dropped, exactly as an
+  // unrecognised `sort` is: the URL is a link someone may have edited, not a contract.
+  // Sending one through would be worse than a 422 -- Jellyfin discards an unparseable id
+  // list in full and answers with the *whole* library, so a typo would widen the list while
+  // the screen still claimed to be filtering it. Facets that do not apply to this media
+  // type are dropped too, for the same reason the API refuses them.
+  const available = facetsFor(kind)
+  const artistIds = available.artistIds ? validIds(params.getAll('artist_ids')) : []
+  const albumIds = available.albumIds ? validIds(params.getAll('album_ids')) : []
+  const patterns = cleanPatterns(params.getAll('exclude'))
   const [draft, setDraft] = useState(search)
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -139,7 +154,18 @@ export function Library() {
   })
 
   const items = useQuery({
-    queryKey: ['items', kind, search, sort, order, startIndex, aspects.join(',')],
+    queryKey: [
+      'items',
+      kind,
+      search,
+      sort,
+      order,
+      startIndex,
+      aspects.join(','),
+      artistIds.join(','),
+      albumIds.join(','),
+      patterns.join(','),
+    ],
     queryFn: () =>
       api.items({
         kind,
@@ -149,6 +175,9 @@ export function Library() {
         order,
         ...(search ? { search } : {}),
         ...(aspects.length ? { missing: aspects as NonNullable<ItemsQuery['missing']> } : {}),
+        ...(artistIds.length ? { artist_ids: artistIds } : {}),
+        ...(albumIds.length ? { album_ids: albumIds } : {}),
+        ...(patterns.length ? { exclude: patterns } : {}),
       }),
   })
 
@@ -157,8 +186,19 @@ export function Library() {
 
   // Selection is cleared when the *query* changes and kept when only the page does.
   // Selecting across pages is the reason paging exists; carrying a selection into a
-  // different search result would attach writes to items the operator never saw.
-  const selectionKey = [kind, search, sort, order, aspects.join(',')].join('|')
+  // different search result would attach writes to items the operator never saw. Every
+  // narrowing is in this key, so a filter that changes what is on screen clears the
+  // selection -- which is the whole point, since the selection feeds a write.
+  const selectionKey = [
+    kind,
+    search,
+    sort,
+    order,
+    aspects.join(','),
+    artistIds.join(','),
+    albumIds.join(','),
+    patterns.join(','),
+  ].join('|')
   const lastSelectionKey = useRef(selectionKey)
   useEffect(() => {
     if (lastSelectionKey.current !== selectionKey) {
@@ -177,6 +217,24 @@ export function Library() {
     // Any change to the query resets to the first page. Staying on page 7 of a result set
     // that just shrank is how a table appears empty for no visible reason.
     if (!('start' in next)) merged.delete('start')
+    setParams(merged)
+  }
+
+  /** Replace the three narrowing parameters in one go, and reset to the first page. */
+  function setFacets(next: FacetValues) {
+    // Written as three separate replacements rather than one merge, so an emptied list
+    // removes the parameter instead of leaving `artist_ids=` behind -- which the API reads
+    // as "no filter" but which no longer looks like a link to the unfiltered list.
+    const merged = new URLSearchParams(params)
+    for (const [key, values] of [
+      ['artist_ids', next.artistIds],
+      ['album_ids', next.albumIds],
+      ['exclude', next.patterns],
+    ] as const) {
+      merged.delete(key)
+      for (const value of values) merged.append(key, value)
+    }
+    merged.delete('start')
     setParams(merged)
   }
 
@@ -256,7 +314,17 @@ export function Library() {
   const activeFilters = [
     ...(search ? [{ key: 'search', label: `search: ${search}` }] : []),
     ...aspects.map((aspect) => ({ key: `missing:${aspect}`, label: `missing ${aspect}` })),
+    ...(artistIds.length ? [{ key: 'artist_ids', label: `${artistIds.length} artist filter(s)` }] : []),
+    ...(albumIds.length ? [{ key: 'album_ids', label: `${albumIds.length} album filter(s)` }] : []),
+    ...patterns.map((pattern) => ({ key: `exclude:${pattern}`, label: `exclude ${pattern}` })),
   ]
+
+  // A pattern can legitimately exclude everything, and "no items match these filters" is
+  // the wrong explanation for that: the filters are fine, the library matched them all.
+  // Saying which happened is the difference between a working control and a broken screen.
+  const allExcluded = scan !== null && scan.matched === 0 && scan.excluded > 0
+
+  const facetValues: FacetValues = { artistIds, albumIds, patterns }
 
   return (
     <section>
@@ -267,7 +335,19 @@ export function Library() {
             <button
               key={entry.value}
               className={entry.value === kind ? 'pill active' : 'pill'}
-              onClick={() => update({ kind: entry.value, missing: null, sort: null })}
+              onClick={() =>
+                update({
+                  kind: entry.value,
+                  missing: null,
+                  sort: null,
+                  // The facets go with the media type: `album_ids` cannot narrow an album
+                  // and `artist_ids` cannot narrow an artist, so carrying them across would
+                  // either 422 or -- worse -- look applied while narrowing nothing. The
+                  // exclusion patterns are kind-agnostic, so they survive.
+                  artist_ids: null,
+                  album_ids: null,
+                })
+              }
             >
               {entry.label}
             </button>
@@ -353,22 +433,38 @@ export function Library() {
         ))}
       </div>
 
+      <SelectionFilters
+        kind={kind}
+        values={facetValues}
+        onChange={setFacets}
+        idPrefix={`library-${kind}`}
+      />
+
       <FilterChips
         filters={activeFilters}
         onRemove={(key) => {
           if (key === 'search') {
             setDraft('')
             update({ search: null })
-          } else {
+          } else if (key.startsWith('missing:')) {
             toggleAspect(key.slice('missing:'.length))
+          } else if (key === 'artist_ids') {
+            setFacets({ ...facetValues, artistIds: [] })
+          } else if (key === 'album_ids') {
+            setFacets({ ...facetValues, albumIds: [] })
+          } else {
+            setFacets({
+              ...facetValues,
+              patterns: patterns.filter((pattern) => `exclude:${pattern}` !== key),
+            })
           }
         }}
         onClear={() => {
           setDraft('')
           const merged = new URLSearchParams(params)
-          merged.delete('search')
-          merged.delete('missing')
-          merged.delete('start')
+          for (const key of ['search', 'missing', 'start', 'artist_ids', 'album_ids', 'exclude']) {
+            merged.delete(key)
+          }
           setParams(merged)
         }}
       />
@@ -493,6 +589,19 @@ export function Library() {
             </div>
           )}
 
+          {/* The pager appears twice -- here and below the table -- because a long page is
+              read from the middle: an operator who has scrolled to the last row should not
+              have to travel back up to move on. Two landmarks with one accessible name
+              would be ambiguous, so each says where it is. */}
+          <Pagination
+            label="items pagination (top)"
+            startIndex={startIndex}
+            pageSize={PAGE_SIZE}
+            returned={rows.length}
+            total={items.data.total}
+            onStartIndex={(next) => update({ start: next === 0 ? null : String(next) })}
+          />
+
           <div className="table-wrap">
             <table className="grid">
               <thead>
@@ -582,9 +691,16 @@ export function Library() {
                 {rows.length === 0 && (
                   <tr>
                     <td colSpan={7} className="muted">
-                      {activeFilters.length > 0
-                        ? 'No items match these filters. Remove one to widen the search.'
-                        : 'Nothing to show. Try clearing the filter, or search for a title.'}
+                      {/* Three different reasons for an empty table, and only one of them
+                          means the filters are wrong. A pattern is *allowed* to exclude
+                          everything -- `*` is a legal pattern -- and telling the operator
+                          to widen a search that is working exactly as asked is the kind of
+                          wrong explanation that makes a tool look broken. */}
+                      {allExcluded
+                        ? `Every item checked (${scan.scanned.toLocaleString()}) matched an exclusion pattern. Remove a pattern to see them again.`
+                        : activeFilters.length > 0
+                          ? 'No items match these filters. Remove one to widen the search.'
+                          : 'Nothing to show. Try clearing the filter, or search for a title.'}
                     </td>
                   </tr>
                 )}

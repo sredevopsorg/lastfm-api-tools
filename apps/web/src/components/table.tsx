@@ -18,6 +18,7 @@ export function Pagination({
   total,
   onStartIndex,
   unit = 'items',
+  label,
 }: {
   startIndex: number
   pageSize: number
@@ -25,6 +26,15 @@ export function Pagination({
   total: number
   onStartIndex: (startIndex: number) => void
   unit?: string
+  /**
+   * The accessible name for this pager's `<nav>` landmark.
+   *
+   * Needed because a table now shows the same control twice -- above and below -- and two
+   * landmarks with one name are ambiguous to a screen reader *and* to a test, which cannot
+   * then say which of the two it meant. The default keeps every existing caller honest
+   * about being the only pager it renders.
+   */
+  label?: string
 }) {
   const window = windowFor({ startIndex, returned })
   const pages = pageCount(total, pageSize)
@@ -33,7 +43,7 @@ export function Pagination({
   const canGoForward = window.end < total
 
   return (
-    <nav className="pager" aria-label={`${unit} pagination`}>
+    <nav className="pager" aria-label={label ?? `${unit} pagination`}>
       <button
         type="button"
         className="pill"
