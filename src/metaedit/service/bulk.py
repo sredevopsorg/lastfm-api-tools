@@ -372,19 +372,26 @@ async def apply_job(
                 requested=requested_for(item),
                 batch_id=job.batch_id,
             )
-        except MetaeditError as exc:
+        except Exception as exc:
             # Roll back only this item's work, leaving prior items committed.
+            #
+            # Catching `Exception` rather than `MetaeditError` is deliberate. Items are
+            # committed independently precisely so that one failure does not discard
+            # the rest, and that promise cannot hold if it only covers failures we
+            # anticipated: an unexpected error would escape this loop with the session
+            # still dirty, the next item's flush would raise `PendingRollbackError`,
+            # and the batch would stop while the real cause was buried under a second
+            # error. The rollback belongs at the per-item boundary, which is here.
             await session.rollback()
-            failed.append(
-                {"item_id": item.item_id, "name": item.name, "error": public_error_text(exc)}
-            )
+            reason = public_error_text(exc)
+            failed.append({"item_id": item.item_id, "name": item.name, "error": reason})
             yield {
                 "type": "failed",
                 "index": index,
                 "item_id": item.item_id,
                 "name": item.name,
-                "error": public_error_text(exc),
-                "error_code": exc.code,
+                "error": reason,
+                "error_code": exc.code if isinstance(exc, MetaeditError) else "internal_error",
             }
             continue
 

@@ -12,6 +12,7 @@ import asyncio
 import json
 from collections.abc import Iterator
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -365,6 +366,50 @@ def test_one_item_failing_does_not_abandon_the_batch(
     assert summary["failed"] == 1
     assert summary["applied"] == 1
     assert summary["failures"][0]["item_id"] == "id-a"
+
+
+def test_an_unexpected_failure_is_contained_to_its_own_item(
+    client: tuple[TestClient, StubJellyfin, str],
+) -> None:
+    """A bug on one item must not become a bug on the whole batch.
+
+    The existing test above covers a failure we anticipated (an upstream error).
+    This one covers a failure we did not: an arbitrary exception raised while
+    snapshotting the first item. Catching only `MetaeditError` left the session
+    dirty, so the *next* item's flush raised `PendingRollbackError` and the batch
+    died with the original cause buried underneath -- observed live, on a
+    `TypeError` from a datetime reaching a JSONB column.
+    """
+    http, _stub, _ = client
+    job_id = _job_id(http)
+
+    calls = {"n": 0}
+    real = bulk.apply_plan
+
+    async def flaky(**kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TypeError("Object of type datetime is not JSON serializable")
+        return await real(**kwargs)
+
+    with patch.object(bulk, "apply_plan", flaky):
+        events = _events(
+            http.post("/api/bulk/apply", json={"job_id": job_id, "confirm": True}).text
+        )
+
+    assert calls["n"] > 1, "the batch kept going after the unexpected failure"
+    failed = [event for event in events if event["type"] == "failed"]
+    applied = [event for event in events if event["type"] == "applied"]
+    assert len(failed) == 1
+    assert failed[0]["error_code"] == "internal_error"
+    # The reference id, not the exception text: a TypeError's str() describes us.
+    assert "datetime" not in failed[0]["error"]
+    assert "Reference" in failed[0]["error"] or "reference" in failed[0]["error"]
+    assert applied, "later items still ran"
+
+    summary = next(event for event in events if event["type"] == "summary")
+    assert summary["failed"] == 1
+    assert summary["applied"] == len(applied)
 
 
 def test_a_job_cannot_be_applied_twice(client: tuple[TestClient, StubJellyfin, str]) -> None:

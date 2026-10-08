@@ -11,6 +11,26 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ## [Unreleased]
 
+### Fixed
+
+**Applying any item with a `PremiereDate` failed with an internal error.** The snapshot
+body is stored in a JSONB column, and `snapshot_fields` passed `PremiereDate` through as
+the `datetime` it is held as in `fields`. JSON has no datetime, so the flush raised
+`TypeError: Object of type datetime is not JSON serializable` — after the change set had
+been reviewed and confirmed, and before anything was written.
+
+Measured on a live library this is not an edge case: **5,916 of 6,583 items** carry a
+`PremiereDate`, including 470 of 502 albums and **5,437 of 5,442 songs**. Artists mostly do
+not (9 of 639), which is why it first appeared as "editing an artist from the third page"
+rather than as "editing anything at all".
+
+**An unanticipated failure on one item killed the whole batch.** `apply_job` caught only
+`MetaeditError`. Anything else escaped the per-item loop with the session still dirty, so
+the *next* item's flush raised `PendingRollbackError` and the run stopped with the original
+cause buried under a second error. Items are committed independently so that one failure
+does not discard the rest; that guarantee now holds for failures we did not predict as well
+as for the ones we did.
+
 ## [0.0.4] - 2026-10-08
 
 ### Added
