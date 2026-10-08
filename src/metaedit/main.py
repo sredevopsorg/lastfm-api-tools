@@ -132,7 +132,11 @@ def _mount_spa(app: FastAPI, settings: Settings) -> None:
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa_fallback(full_path: str) -> Response:
         if full_path:
-            candidate = (dist / full_path).resolve()
+            rel_path = Path(full_path)
+            # Reject absolute paths and traversal attempts early.
+            if rel_path.is_absolute() or ".." in rel_path.parts:
+                return FileResponse(index)
+            candidate = (dist / rel_path).resolve()
             # Containment check: never serve outside the built bundle.
             if candidate.is_file() and candidate.is_relative_to(dist):
                 return FileResponse(candidate)
