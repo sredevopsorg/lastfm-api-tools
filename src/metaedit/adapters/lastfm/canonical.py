@@ -17,7 +17,6 @@ never create a spurious duplicate (ADR 0010).
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import os
 import unicodedata
@@ -124,11 +123,12 @@ def api_key_fingerprint(api_key: str) -> str:
     """
     if not api_key:
         return ""
-    digest = hmac.new(
-        _API_KEY_FINGERPRINT_SECRET,
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
         api_key.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+        _API_KEY_FINGERPRINT_SECRET,
+        600_000,
+    ).hex()
     return digest[:16]
 
 
