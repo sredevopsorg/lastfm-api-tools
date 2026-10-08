@@ -8,7 +8,10 @@ place buys three things that would otherwise be smeared across the codebase:
   server omits is never mistaken for an empty one -- and an empty untouched field
   is never mistaken for an instruction to clear it.
 * **Comparable types.** ``PremiereDate`` arrives as a datetime but must be sent
-  as an ISO string; ``CommunityRating`` may be int or float.
+  as an ISO string; ``CommunityRating`` may be int or float. It stays a datetime
+  in ``fields``, which is what makes a date comparison meaningful -- and means
+  ``fields`` is *not* directly JSON-serialisable, so anything putting it in a
+  response body has to convert it first (see ``api/serialization``).
 * **One build site for write payloads.** ``to_payload`` emits exactly
   ``payload_fields(kind)`` (ADR 0003), so the completeness invariant is a
   property of a single function.
@@ -222,6 +225,8 @@ def _normalize(field: str, value: Any) -> Any:
     if field == "People":
         return list(value or [])
     if field == "PremiereDate":
+        # Stored as a datetime so comparisons against a local date work, and
+        # converted back on the way out by `_to_wire`.
         return _as_datetime(value)
     if field in {"CommunityRating", "CriticRating"}:
         return None if value is None else float(value)
