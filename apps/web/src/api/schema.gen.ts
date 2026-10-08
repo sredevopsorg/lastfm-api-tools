@@ -212,8 +212,12 @@ export interface paths {
          * @description The genre vocabulary this library actually uses.
          *
          *     Read from Jellyfin's genre entities rather than by scanning items: it is the same list
-         *     the server's own genre filter offers, so what the operator picks here is what they
-         *     would pick there. Read-only.
+         *     the server's own genre filter offers (39 entries for this library's artists), so what
+         *     the operator picks here is what they would pick there. Read-only.
+         *
+         *     Scoped per media type because the sets genuinely differ -- an album-only genre is not
+         *     an artist genre, and listing one type's genres for another would offer a value that
+         *     matches nothing.
          */
         get: operations["library_genres_api_bulk_genres_get"];
         put?: never;
@@ -2502,7 +2506,10 @@ export interface operations {
     };
     library_genres_api_bulk_genres_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description which media type's genre set to list; the sets differ */
+                item_kind?: "MusicArtist" | "MusicAlbum" | "Audio";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2516,6 +2523,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GenreVocabularyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -4051,7 +4051,7 @@
   "info": {
     "description": "Browse a Jellyfin music library, read artist/album/track metadata from the\nLast.fm API, keep a persistent incremental local archive of every Last.fm\nresponse, review a field-level diff, and apply the accepted changes back to\nJellyfin.\n",
     "title": "metaedit",
-    "version": "0.0.5"
+    "version": "0.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4566,8 +4566,27 @@
     },
     "/api/bulk/genres": {
       "get": {
-        "description": "The genre vocabulary this library actually uses.\n\nRead from Jellyfin's genre entities rather than by scanning items: it is the same list\nthe server's own genre filter offers, so what the operator picks here is what they\nwould pick there. Read-only.",
+        "description": "The genre vocabulary this library actually uses.\n\nRead from Jellyfin's genre entities rather than by scanning items: it is the same list\nthe server's own genre filter offers (39 entries for this library's artists), so what\nthe operator picks here is what they would pick there. Read-only.\n\nScoped per media type because the sets genuinely differ -- an album-only genre is not\nan artist genre, and listing one type's genres for another would offer a value that\nmatches nothing.",
         "operationId": "library_genres_api_bulk_genres_get",
+        "parameters": [
+          {
+            "description": "which media type's genre set to list; the sets differ",
+            "in": "query",
+            "name": "item_kind",
+            "required": false,
+            "schema": {
+              "default": "MusicArtist",
+              "description": "which media type's genre set to list; the sets differ",
+              "enum": [
+                "MusicArtist",
+                "MusicAlbum",
+                "Audio"
+              ],
+              "title": "Item Kind",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -4578,6 +4597,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Library Genres",

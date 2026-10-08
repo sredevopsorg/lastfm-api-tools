@@ -1,7 +1,7 @@
 {
   "name": "metaedit-web",
   "private": true,
-  "version": "0.0.5",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "build": "npm run typecheck && node --experimental-strip-types scripts/run-tests.mjs && vite build",

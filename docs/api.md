@@ -45,6 +45,26 @@ the archive.
 | `POST /api/bulk/{batch_id}/revert` | **SSE.** Undo a whole batch. Requires `confirm=true`. |
 | `GET /api/bulk/jobs` | Reviewed diffs still available to apply. |
 
+## Genre blacklist and removal
+
+| Endpoint | Meaning |
+|---|---|
+| `GET /api/settings/genre-blacklist` | The stored entries, the built-in list, the env var, and the merged set actually enforced. |
+| `PUT /api/settings/genre-blacklist` | Replace the stored list from `raw` text. A comma-bearing line is reported in `conflicts`, not split. Returns 200 with `needs_review: true` rather than refusing the whole block. |
+| `POST /api/settings/genre-blacklist/preview` | What this text would blacklist, and which live library genres each entry matches. Writes nothing. |
+| `GET /api/bulk/genres` | The library's genre entities for one `item_kind` — the same list Jellyfin's own filter offers. |
+| `POST /api/bulk/remove-genre/diff` | **SSE.** Every item carrying a genre value, with what removing it would do. Returns a `job_id`. Writes nothing. |
+| `POST /api/bulk/remove-genre/apply` | **SSE.** Apply a reviewed removal. Requires `confirm: true`. |
+| `GET /api/bulk/remove-genre/jobs` | Reviewed removals still available to apply. |
+
+A removal reuses `POST /api/bulk/{batch_id}/revert` — it is a batch like any other.
+
+**Matching is exact and case-insensitive in both features, never a substring.** A blank
+`genre` is refused rather than treated as a wildcard, because an empty match would remove
+every genre from every selected item. `decompose: true` additionally removes matching
+*parts* of a packed value (`Rock, Reggae` → `Rock`); it is off by default and needs a scan,
+because Jellyfin cannot filter by part of a value. See ADR 0015.
+
 ## Archive
 
 | Endpoint | Meaning |
