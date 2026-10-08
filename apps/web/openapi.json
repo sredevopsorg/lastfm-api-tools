@@ -809,6 +809,38 @@
         "title": "ArchiveTagView",
         "type": "object"
       },
+      "BlacklistConflictView": {
+        "description": "A line that could be read two ways.",
+        "properties": {
+          "fragments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fragments",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "raw": {
+            "title": "Raw",
+            "type": "string"
+          },
+          "whole": {
+            "title": "Whole",
+            "type": "string"
+          }
+        },
+        "required": [
+          "raw",
+          "whole",
+          "fragments",
+          "message"
+        ],
+        "title": "BlacklistConflictView",
+        "type": "object"
+      },
       "Body_harvest_one_api_items__item_id__harvest_post": {
         "properties": {
           "search_fallback": {
@@ -2065,6 +2097,78 @@
         "title": "FieldPolicyOverride",
         "type": "object"
       },
+      "GenreBlacklistResponse": {
+        "description": "The blacklist, with each source named.\n\nSeparately *and* merged. Separately, because an operator who saved an entry and did\nnot see it take effect needs to know which source supplied what; merged, because\n``effective`` is what the tag policy actually enforces.",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "defaults": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Defaults",
+            "type": "array"
+          },
+          "effective": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Effective",
+            "type": "array"
+          },
+          "entries": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "env": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entries",
+          "defaults",
+          "env",
+          "effective",
+          "counts",
+          "note"
+        ],
+        "title": "GenreBlacklistResponse",
+        "type": "object"
+      },
+      "GenreBlacklistUpdate": {
+        "properties": {
+          "allow_commas": {
+            "default": false,
+            "description": "split lines on commas. Only set this once the operator has been told what a comma would mean; on a library whose genres contain commas it changes which values are blacklisted.",
+            "title": "Allow Commas",
+            "type": "boolean"
+          },
+          "raw": {
+            "default": "",
+            "description": "one genre per line. A line containing a comma is reported rather than split, because a comma is also a legal character in a genre value.",
+            "title": "Raw",
+            "type": "string"
+          }
+        },
+        "title": "GenreBlacklistUpdate",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2890,6 +2994,79 @@
         "title": "PartitionUsage",
         "type": "object"
       },
+      "PreviewEntry": {
+        "properties": {
+          "entry": {
+            "title": "Entry",
+            "type": "string"
+          },
+          "matches": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Matches",
+            "type": "array"
+          },
+          "norm": {
+            "title": "Norm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry",
+          "norm",
+          "matches"
+        ],
+        "title": "PreviewEntry",
+        "type": "object"
+      },
+      "PreviewResponse": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/BlacklistConflictView"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "preview": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewEntry"
+            },
+            "title": "Preview",
+            "type": "array"
+          },
+          "scanned_kind": {
+            "title": "Scanned Kind",
+            "type": "string"
+          },
+          "vocabulary_size": {
+            "title": "Vocabulary Size",
+            "type": "integer"
+          },
+          "would_blacklist": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Would Blacklist",
+            "type": "array"
+          }
+        },
+        "required": [
+          "preview",
+          "would_blacklist",
+          "conflicts",
+          "vocabulary_size",
+          "scanned_kind",
+          "note"
+        ],
+        "title": "PreviewResponse",
+        "type": "object"
+      },
       "ReadMetricsView": {
         "properties": {
           "decisions": {
@@ -3257,6 +3434,44 @@
           }
         },
         "title": "TagPolicyRequest",
+        "type": "object"
+      },
+      "UpdateResponse": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/BlacklistConflictView"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "needs_review": {
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "saved": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Saved",
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/components/schemas/GenreBlacklistResponse"
+          }
+        },
+        "required": [
+          "saved",
+          "count",
+          "conflicts",
+          "state",
+          "needs_review"
+        ],
+        "title": "UpdateResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -4722,6 +4937,110 @@
         "summary": "Libraries",
         "tags": [
           "library"
+        ]
+      }
+    },
+    "/api/settings/genre-blacklist": {
+      "get": {
+        "description": "The current blacklist and the three sources it is drawn from.",
+        "operationId": "read_genre_blacklist_api_settings_genre_blacklist_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenreBlacklistResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Genre Blacklist",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "description": "Replace the stored list from text.\n\nReplace rather than merge: the input is a textarea, so what the operator sees when\nthey press save is what they mean, and a hidden union with previous entries would make\ndeleting one impossible.\n\nA 200 with ``needs_review`` is the normal outcome for ambiguous input, not a 422.\nRefusing the whole block would discard the entries that were unambiguous, and the\noperator would have to work out which line was the problem from an error alone.",
+        "operationId": "write_genre_blacklist_api_settings_genre_blacklist_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenreBlacklistUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Write Genre Blacklist",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/settings/genre-blacklist/preview": {
+      "post": {
+        "description": "What this text would blacklist, and which live genres it currently matches.\n\nReads the library's genre vocabulary so the answer is in the operator's own words.\nThis is what makes the comma ambiguity safe to offer: they see the exact values a\nline would match *before* saving, rather than discovering it when a genre they wanted\nis missing from a diff.\n\nReads only. The vocabulary is sampled from one media type rather than all three,\nwhich is a deliberate approximation -- a genre on an album but no artist would not\nbe listed -- and the response says so rather than implying completeness.",
+        "operationId": "preview_genre_blacklist_api_settings_genre_blacklist_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenreBlacklistUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Genre Blacklist",
+        "tags": [
+          "settings"
         ]
       }
     },

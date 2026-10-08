@@ -10,6 +10,7 @@ because a policy override is a body, and it writes nothing.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Body, Depends, Header, Query
@@ -25,10 +26,12 @@ from metaedit.api.schemas import (
     SnapshotListResponse,
 )
 from metaedit.archive.resolve import describe_candidate, resolve_candidates
+from metaedit.config import Settings, get_settings
 from metaedit.db.models import Snapshot
 from metaedit.db.session import get_session
 from metaedit.domain.errors import NotFoundError, ValidationError
 from metaedit.domain.tags import TagPolicy
+from metaedit.service import genre_blacklist
 from metaedit.service.apply import ApplyOutcome, apply_plan, revert_snapshot
 from metaedit.service.planning import build_plan_for_item, normalise
 
@@ -119,6 +122,7 @@ async def item_diff(
     item_id: str,
     client: JellyfinDep,
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
     body: Annotated[DiffRequest, Body()],
 ) -> dict[str, Any]:
     """Preview the exact changes applying this candidate would make.
@@ -134,7 +138,7 @@ async def item_diff(
         entity_id=body.entity_id,
         entity_kind=body.entity_kind,
         overrides={override.field: override.mode for override in body.overrides},
-        tag_policy=tag_policy_from(body.tag_policy),
+        tag_policy=await tag_policy_with_stored_blacklist(session, settings, body.tag_policy),
     )
     return plan.as_dict()
 
@@ -144,6 +148,7 @@ async def item_apply(
     item_id: str,
     client: JellyfinDep,
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
     body: Annotated[ApplyRequest, Body()],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, Any]:
@@ -166,7 +171,7 @@ async def item_apply(
         entity_id=body.entity_id,
         entity_kind=body.entity_kind,
         overrides={override.field: override.mode for override in body.overrides},
-        tag_policy=tag_policy_from(body.tag_policy),
+        tag_policy=await tag_policy_with_stored_blacklist(session, settings, body.tag_policy),
     )
     outcome = await apply_plan(
         session=session,
@@ -246,6 +251,14 @@ async def revert(
 
 
 def tag_policy_from(request: TagPolicyRequest | None) -> TagPolicy:
+    """The policy for one request, from the request body alone.
+
+    Synchronous, and therefore *without* the stored blacklist: ``blacklist=`` is left at
+    its empty default here and filled in by :func:`tag_policy_with_stored_blacklist`. The
+    split exists because four call sites need the stored list and several unit tests need
+    a body-only policy, and threading a session through all of them to serve the first
+    group would make the pure path untestable.
+    """
     if request is None:
         return TagPolicy()
     return TagPolicy(
@@ -254,6 +267,28 @@ def tag_policy_from(request: TagPolicyRequest | None) -> TagPolicy:
         min_count=request.min_count,
         extra_blacklist=frozenset(name.casefold() for name in request.extra_blacklist),
     )
+
+
+async def tag_policy_with_stored_blacklist(
+    session: AsyncSession,
+    settings: Settings,
+    request: TagPolicyRequest | None,
+) -> TagPolicy:
+    """A request's policy, with the operator's stored blacklist enforced.
+
+    Every endpoint that *builds a plan* must use this rather than ``tag_policy_from``, or
+    the setting silently does nothing on that path -- which is how a saved entry appears
+    to be ignored. The stored values go into ``blacklist`` rather than ``extra_blacklist``
+    so that a request body can still add to them without being able to remove them: a
+    caller must not be able to talk the server out of the operator's policy.
+
+    Reads the blacklist per request rather than caching it. It is one indexed query over
+    tens of rows, and a cached copy would go stale the moment the operator saved a change
+    -- reintroducing exactly the "why do I need a restart" problem this replaced.
+    """
+    policy = tag_policy_from(request)
+    stored = await genre_blacklist.effective(session, settings)
+    return replace(policy, blacklist=stored)
 
 
 __all__ = ["router"]

@@ -12,7 +12,21 @@ from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from metaedit.api import archive, bulk, errors, hardening, harvest, health, info, items, library
+from metaedit.api import (
+    archive,
+    bulk,
+    errors,
+    hardening,
+    harvest,
+    health,
+    info,
+    items,
+    library,
+)
+
+# Aliased: this module uses `settings` as a local name throughout (the Settings instance
+# passed to the app), so importing the router module unaliased would shadow it.
+from metaedit.api import settings as settings_api
 from metaedit.config import Settings, get_settings
 from metaedit.db.partitions import ensure_partitions
 from metaedit.db.session import dispose_engine, get_session_factory, init_engine
@@ -38,6 +52,7 @@ def api_router() -> APIRouter:
     router.include_router(items.router)
     router.include_router(bulk.router)
     router.include_router(harvest.router)
+    router.include_router(settings_api.router)
     return router
 
 

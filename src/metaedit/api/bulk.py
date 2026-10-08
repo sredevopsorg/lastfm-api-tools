@@ -21,9 +21,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.api.deps import JellyfinDep
-from metaedit.api.items import FieldPolicyOverride, TagPolicyRequest, tag_policy_from
+from metaedit.api.items import (
+    FieldPolicyOverride,
+    TagPolicyRequest,
+    tag_policy_with_stored_blacklist,
+)
 from metaedit.api.schemas import BulkJobListResponse, BulkStreamEvent
 from metaedit.api.sse import error_frame, sse_frame
+from metaedit.config import Settings, get_settings
 from metaedit.db.session import get_session
 from metaedit.domain.browse_filters import MissingAspect
 from metaedit.domain.errors import NotFoundError, ValidationError
@@ -117,6 +122,7 @@ async def _stream(events: AsyncIterator[dict[str, Any]]) -> AsyncIterator[str]:
 async def bulk_diff(
     client: JellyfinDep,
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
     body: Annotated[BulkDiffRequest, Body()] = BulkDiffRequest(),
 ) -> StreamingResponse:
     """Diff every item in the selection, streaming one event per item.
@@ -134,7 +140,7 @@ async def bulk_diff(
         limit=body.selection.limit,
         missing=body.selection.missing,
         overrides={override.field: override.mode for override in body.overrides},
-        tag_policy=tag_policy_from(body.tag_policy),
+        tag_policy=await tag_policy_with_stored_blacklist(session, settings, body.tag_policy),
         min_confidence=body.min_confidence,
     )
     return StreamingResponse(

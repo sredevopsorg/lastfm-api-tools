@@ -541,6 +541,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/genre-blacklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Genre Blacklist
+         * @description The current blacklist and the three sources it is drawn from.
+         */
+        get: operations["read_genre_blacklist_api_settings_genre_blacklist_get"];
+        /**
+         * Write Genre Blacklist
+         * @description Replace the stored list from text.
+         *
+         *     Replace rather than merge: the input is a textarea, so what the operator sees when
+         *     they press save is what they mean, and a hidden union with previous entries would make
+         *     deleting one impossible.
+         *
+         *     A 200 with ``needs_review`` is the normal outcome for ambiguous input, not a 422.
+         *     Refusing the whole block would discard the entries that were unambiguous, and the
+         *     operator would have to work out which line was the problem from an error alone.
+         */
+        put: operations["write_genre_blacklist_api_settings_genre_blacklist_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/genre-blacklist/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Genre Blacklist
+         * @description What this text would blacklist, and which live genres it currently matches.
+         *
+         *     Reads the library's genre vocabulary so the answer is in the operator's own words.
+         *     This is what makes the comma ambiguity safe to offer: they see the exact values a
+         *     line would match *before* saving, rather than discovering it when a genre they wanted
+         *     is missing from a diff.
+         *
+         *     Reads only. The vocabulary is sampled from one media type rather than all three,
+         *     which is a deliberate approximation -- a genre on an album but no artist would not
+         *     be listed -- and the response says so rather than implying completeness.
+         */
+        post: operations["preview_genre_blacklist_api_settings_genre_blacklist_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/snapshots/{snapshot_id}/revert": {
         parameters: {
             query?: never;
@@ -837,6 +898,20 @@ export interface components {
             name: string;
             /** Rank */
             rank: number;
+        };
+        /**
+         * BlacklistConflictView
+         * @description A line that could be read two ways.
+         */
+        BlacklistConflictView: {
+            /** Fragments */
+            fragments: string[];
+            /** Message */
+            message: string;
+            /** Raw */
+            raw: string;
+            /** Whole */
+            whole: string;
         };
         /** Body_harvest_one_api_items__item_id__harvest_post */
         Body_harvest_one_api_items__item_id__harvest_post: {
@@ -1277,6 +1352,45 @@ export interface components {
              */
             mode: "keep_existing" | "fill_if_empty" | "replace" | "merge";
         };
+        /**
+         * GenreBlacklistResponse
+         * @description The blacklist, with each source named.
+         *
+         *     Separately *and* merged. Separately, because an operator who saved an entry and did
+         *     not see it take effect needs to know which source supplied what; merged, because
+         *     ``effective`` is what the tag policy actually enforces.
+         */
+        GenreBlacklistResponse: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Defaults */
+            defaults: string[];
+            /** Effective */
+            effective: string[];
+            /** Entries */
+            entries: string[];
+            /** Env */
+            env: string[];
+            /** Note */
+            note: string;
+        };
+        /** GenreBlacklistUpdate */
+        GenreBlacklistUpdate: {
+            /**
+             * Allow Commas
+             * @description split lines on commas. Only set this once the operator has been told what a comma would mean; on a library whose genres contain commas it changes which values are blacklisted.
+             * @default false
+             */
+            allow_commas: boolean;
+            /**
+             * Raw
+             * @description one genre per line. A line containing a comma is reported rather than split, because a comma is also a legal character in a genre value.
+             * @default
+             */
+            raw: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1592,6 +1706,30 @@ export interface components {
             /** Rows */
             rows: number;
         };
+        /** PreviewEntry */
+        PreviewEntry: {
+            /** Entry */
+            entry: string;
+            /** Matches */
+            matches: string[];
+            /** Norm */
+            norm: string;
+        };
+        /** PreviewResponse */
+        PreviewResponse: {
+            /** Conflicts */
+            conflicts: components["schemas"]["BlacklistConflictView"][];
+            /** Note */
+            note: string;
+            /** Preview */
+            preview: components["schemas"]["PreviewEntry"][];
+            /** Scanned Kind */
+            scanned_kind: string;
+            /** Vocabulary Size */
+            vocabulary_size: number;
+            /** Would Blacklist */
+            would_blacklist: string[];
+        };
         /** ReadMetricsView */
         ReadMetricsView: {
             /** Decisions */
@@ -1736,6 +1874,18 @@ export interface components {
              * @default 10
              */
             style_limit: number;
+        };
+        /** UpdateResponse */
+        UpdateResponse: {
+            /** Conflicts */
+            conflicts: components["schemas"]["BlacklistConflictView"][];
+            /** Count */
+            count: number;
+            /** Needs Review */
+            needs_review: boolean;
+            /** Saved */
+            saved: string[];
+            state: components["schemas"]["GenreBlacklistResponse"];
         };
         /** ValidationError */
         ValidationError: {
@@ -2514,6 +2664,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LibraryInfo"][];
+                };
+            };
+        };
+    };
+    read_genre_blacklist_api_settings_genre_blacklist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenreBlacklistResponse"];
+                };
+            };
+        };
+    };
+    write_genre_blacklist_api_settings_genre_blacklist_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenreBlacklistUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_genre_blacklist_api_settings_genre_blacklist_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenreBlacklistUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
