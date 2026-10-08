@@ -21,10 +21,49 @@ the archive.
 | Endpoint | Meaning |
 |---|---|
 | `GET /api/libraries` | Music libraries only (`CollectionType=music`). |
-| `GET /api/items` | Browse artists, albums or songs; `search`, paging, `missing_metadata`. |
+| `GET /api/items` | Browse artists, albums or songs; `search`, paging, `missing`, `artist_ids`, `album_ids`, `exclude`. |
 | `GET /api/items/{id}/state` | The full writable field set for one item, plus `etag` and lock flags. |
 | `POST /api/items/states` | The same, batched — the multi-select path for bulk editing. |
 | `POST /api/items/{id}/refresh` | Ask Jellyfin to re-run *its* providers. Separate from our edits by design. |
+
+### Narrowing a selection
+
+`GET /api/items`, `POST /api/bulk/diff`, `POST /api/bulk/remove-genre/diff` and
+`POST /api/harvest` accept the same three narrowings and apply the same rules — the id
+shape check, the pattern semantics and the label set are one implementation
+(`domain.identifiers`, `domain.exclusion`, `service.labels`). The three write paths
+additionally share `service.selection`, which is where the over-fetch and the counters
+live; `GET /api/items` composes the same primitives but *windows* the scan, so it reports
+what it read rather than collecting a signature.
+
+| Parameter | What it does | Cost |
+|---|---|---|
+| `artist_ids` | Items credited to any of these artists. `album` and `song` only. | Jellyfin's own filter; free. |
+| `album_ids` | Songs on any of these albums. `song` only. | Jellyfin's own filter; free. |
+| `exclude` | Case-insensitive glob patterns; an item whose **name**, **album** or **album artist** matches any of them is dropped. | A scan over the items. |
+| `missing` | Items lacking any of the named aspects. | A scan over the items. |
+
+Semantics worth stating, all verified against Jellyfin 12.2.0:
+
+- Ids **union within a parameter** (`ArtistIds=ABBA,a-ha` is the sum of the two) and
+  **intersect across** them (`ArtistIds` + `AlbumIds` narrows both ways at once).
+- Ids must be 32 hex characters or a dashed GUID. **Anything else is a 422.** Jellyfin
+  discards an unparseable list *in full* and answers with the unfiltered library — measured:
+  `ArtistIds=abc` returns all 502 albums where a valid id returns 2 — so passing one through
+  would turn a narrowing into a widening, on a selection that feeds a write.
+- A facet that cannot apply to the media type is a **422**, not a zero.
+  `ArtistIds` with `kind=artist` returns 0 of 639 on the server, which reads as an empty
+  library rather than an impossible filter.
+- Patterns are **literal**: `live` matches exactly `live`, and `*live*` is what matches a
+  substring. They are matched against all three labels, so `Various Artists` excludes
+  compilations even though that string appears in no track or album name.
+- When either scan-backed filter is used, the response carries `scan`:
+  `{scanned, matched, excluded, truncated, limit}`. `excluded` and `matched` are disjoint —
+  exclusion is evaluated first — and `truncated` means the read stopped at the cap, so
+  `total` is a lower bound.
+- A selection that needs a scan **over-fetches to fill its limit**: a batch asking for 25
+  items keeps reading until it has 25 that pass, rather than returning however many of the
+  first 25 survived. `excluded` on the job summary is what explains a short result.
 
 ## Editing
 

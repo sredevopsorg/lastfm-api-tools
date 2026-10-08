@@ -162,3 +162,20 @@ each one is a trap that a future change could walk back into:
 - Blacklisting a genre stops it being *proposed*, and never rewrites existing items.
   Removing a stored genre is the separate *Remove genre* screen, which is reviewed and
   revertible like any other batch.
+- `METAEDIT_BROWSE_SCAN_CAP` bounds how many items a filter that needs a read will look
+  at, and defaults to 2,000. Two filters need one: `missing`, which Jellyfin cannot express
+  for music, and `exclude`, which it cannot express at all. The response reports
+  `scanned`, `matched`, `excluded` and `truncated` under `scan`, and `truncated: true` means
+  the filtered count is a *lower bound* rather than a total -- which the browse screen says
+  in words. It began as a test hook for the truncation path and is now a real knob: with
+  exclusion patterns in routine use, a scan is routine too. Raise it on a large library and
+  the filter gets slower rather than wrong, which is the direction to prefer.
+- Artist and album filters (`artist_ids`, `album_ids`) are **free** -- they are Jellyfin's
+  own parameters, so nothing is scanned and no cap applies. Exclusion patterns are the only
+  user-facing filter that costs a read.
+- Ids in those filters must be 32 hex characters or a dashed GUID. Jellyfin silently
+  discards a list it cannot parse *in full* and answers with the **unfiltered** library --
+  measured: `ArtistIds=abc` returns all 502 albums where a valid id returns 2 -- so the API
+  refuses anything else with a 422 rather than risk a filter that widens. The SPA drops a
+  bad id from the URL instead, so a stale link shows the unfiltered list rather than an
+  error page.
