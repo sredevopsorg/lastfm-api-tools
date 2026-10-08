@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "metaedit"
-version = "0.0.2"
+version = "0.0.3"
 description = "Browse a Jellyfin music library, read Last.fm metadata, keep a persistent local archive of every Last.fm response, and apply reviewed metadata edits back to Jellyfin."
 readme = "README.md"
 requires-python = ">=3.12"
