@@ -17,12 +17,18 @@ never create a spurious duplicate (ADR 0010).
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import os
 import unicodedata
 from typing import Any
 
 # Params that affect only transport or credentials, never the response body.
 IGNORED_PARAMS = frozenset({"api_key", "format", "callback", "api_sig", "sk"})
+
+# Server-side secret used to derive deterministic, non-reversible API key fingerprints.
+# Must be configured in deployment environment.
+_API_KEY_FINGERPRINT_SECRET = os.environ.get("METAEDIT_API_KEY_FINGERPRINT_SECRET", "").encode("utf-8")
 
 
 def normalize_name(value: str | None) -> str:
@@ -118,7 +124,12 @@ def api_key_fingerprint(api_key: str) -> str:
     """
     if not api_key:
         return ""
-    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+    digest = hmac.new(
+        _API_KEY_FINGERPRINT_SECRET,
+        api_key.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return digest[:16]
 
 
 def is_error_body(body: dict[str, Any]) -> bool:
