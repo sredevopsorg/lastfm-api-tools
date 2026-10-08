@@ -183,19 +183,15 @@ def to_payload(base: NormalizedItem, changes: dict[str, Any]) -> dict[str, Any]:
 def snapshot_fields(base: NormalizedItem) -> dict[str, Any]:
     """The JSONB body persisted in the ``snapshot`` table.
 
-    Every value is passed through ``_to_wire``, because this body is stored in a
-    JSONB column and JSON has no datetime. ``fields`` holds ``PremiereDate`` as a
-    datetime deliberately -- that is what makes a date comparison meaningful, and
-    ``to_payload`` already converts it on the way to Jellyfin -- but a datetime
-    handed to a JSONB column is a ``TypeError`` at insert time.
-
-    That failure lands in the worst possible place: after the change set has been
-    reviewed and confirmed, during the snapshot flush, before anything is written.
-    The user gets an internal error on a write they believed was approved, and no
-    snapshot exists to explain it. Measured on the live library, 5,916 of 6,583
-    items (470 of 502 albums, 5,437 of 5,442 songs) carry a ``PremiereDate`` and
-    would fail this way; artists mostly do not, which is why the first report came
-    from an artist that happened to have one.
+    Every value is passed through ``_to_wire``. That is belt-and-braces now that
+    ``_normalize`` already emits the wire form, and deliberately so: this body goes
+    into a JSONB column, and JSON has no datetime. A value that reached here
+    unconverted would fail at insert time -- in the worst possible place, after the
+    change set has been reviewed and confirmed and before anything is written, so
+    the user gets an internal error on a write they believed was approved and no
+    snapshot exists to explain it. Measured on a live library, 5,916 of 6,583 items
+    carry a ``PremiereDate``, which is how that would have gone for most of the
+    library (see ADR 0014).
     """
     return {
         field: _to_wire(field, base.fields.get(field, empty_value(field)))
