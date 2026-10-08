@@ -20,3 +20,5 @@ A record is superseded by a new one (status change), never rewritten.
 | [0012](0012-read-only-lastfm.md) | Read-only Last.fm usage: API key only, no user auth flow | Accepted |
 | [0013](0013-single-container-and-postgres-18.md) | Single container serving the SPA; Postgres 18 pinned as `18-trixie` | Accepted |
 | [0014](0014-premiere-date-is-a-wire-string.md) | `PremiereDate` is a wire string everywhere outside comparison | Accepted |
+| [0015](0015-exact-genre-matching.md) | Genre matching is exact and case-insensitive; a comma is never guessed at | Accepted |
+| [0016](0016-operator-policy-in-the-database.md) | Operator policy is stored in the database, not only in the environment | Accepted |

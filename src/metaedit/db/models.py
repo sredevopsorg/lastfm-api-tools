@@ -1,6 +1,6 @@
 """ORM models.
 
-Two clearly separated concerns live in one database:
+Three clearly separated concerns live in one database:
 
 1. **Editor state** — ``snapshot`` and ``audit_log``: what we wrote to Jellyfin
    and what it looked like before, so any apply is reversible.
@@ -8,6 +8,9 @@ Two clearly separated concerns live in one database:
    every response we ever received. Raw (``lastfm_request``/``lastfm_response``)
    is the source of truth; everything else is derived from it and rebuildable
    with no network access (see ``metaedit.archive.reindex``).
+3. **Operator settings** — ``genre_blacklist``: policy the operator edits at
+   runtime. Small, mutable, and derived from nothing, which is what separates it
+   from both of the above.
 """
 
 from __future__ import annotations
@@ -338,3 +341,51 @@ class ArchiveStat(Base):
     observations: Mapped[int] = mapped_column(BigInteger, nullable=False)
     oldest_request_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cap_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# Operator settings
+# ---------------------------------------------------------------------------
+
+
+class GenreBlacklist(Base):
+    """A genre the operator never wants proposed for writing.
+
+    The third concern in this database, and the smallest: unlike editor state it is
+    mutable, and unlike the archive it is not append-only and not derived from anything.
+
+    ``value_norm`` carries a unique constraint rather than being a plain copy of
+    ``value``, so ``Rock`` and ``rock`` cannot both be stored. That is the same argument
+    ``lastfm_tag_edge`` makes about ``(entity, tag_name_norm)``: without folding, one
+    logical genre would occupy two rows and the operator would have no signal that their
+    second entry did nothing. Parsing already deduplicates case-insensitively, so this
+    constraint is the backstop for a caller that skips the parser rather than the primary
+    mechanism -- an ``IntegrityError`` after a save is a worse answer than a merged entry.
+
+    Deliberately *not* partitioned and not append-only. It holds tens of rows, and the
+    audit trail for a change to it is the ``audit_log`` of whatever write the change
+    affected, not a history of the setting itself.
+    """
+
+    __tablename__ = "genre_blacklist"
+    __table_args__ = (UniqueConstraint("value_norm", name="uq_genre_blacklist_value_norm"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # As the operator typed it, so the UI can show their spelling rather than our folded
+    # one. "Rock" and "rock" are the same entry, and showing the latter back to someone
+    # who typed the former reads as the tool ignoring them.
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    # normalize_tag(value) -- the comparison key, and the uniqueness key.
+    value_norm: Mapped[str] = mapped_column(Text, nullable=False)
+    # Free text: why this is blacklisted. Frequently the only thing that explains an
+    # entry a year later.
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

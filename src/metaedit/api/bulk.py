@@ -12,22 +12,33 @@ sitting behind a reverse proxy.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.api.deps import JellyfinDep
-from metaedit.api.items import FieldPolicyOverride, TagPolicyRequest, tag_policy_from
-from metaedit.api.schemas import BulkJobListResponse, BulkStreamEvent
+from metaedit.api.items import (
+    FieldPolicyOverride,
+    TagPolicyRequest,
+    tag_policy_with_stored_blacklist,
+)
+from metaedit.api.schemas import (
+    BulkJobListResponse,
+    BulkStreamEvent,
+    GenreVocabularyResponse,
+    RemovalJobListResponse,
+    RemovalStreamEvent,
+)
 from metaedit.api.sse import error_frame, sse_frame
+from metaedit.config import Settings, get_settings
 from metaedit.db.session import get_session
 from metaedit.domain.browse_filters import MissingAspect
 from metaedit.domain.errors import NotFoundError, ValidationError
-from metaedit.service import bulk
+from metaedit.service import bulk, genre_removal
 
 router = APIRouter(prefix="/bulk", tags=["bulk"])
 
@@ -117,6 +128,7 @@ async def _stream(events: AsyncIterator[dict[str, Any]]) -> AsyncIterator[str]:
 async def bulk_diff(
     client: JellyfinDep,
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
     body: Annotated[BulkDiffRequest, Body()] = BulkDiffRequest(),
 ) -> StreamingResponse:
     """Diff every item in the selection, streaming one event per item.
@@ -134,7 +146,7 @@ async def bulk_diff(
         limit=body.selection.limit,
         missing=body.selection.missing,
         overrides={override.field: override.mode for override in body.overrides},
-        tag_policy=tag_policy_from(body.tag_policy),
+        tag_policy=await tag_policy_with_stored_blacklist(session, settings, body.tag_policy),
         min_confidence=body.min_confidence,
     )
     return StreamingResponse(
@@ -230,3 +242,201 @@ async def list_jobs() -> dict[str, Any]:
     """
     jobs = bulk.registry().list()
     return {"jobs": [job.summary() for job in jobs], "count": len(jobs)}
+
+
+# --------------------------------------------------------------- genre removal
+#
+# A second kind of batch that shares this module's write path. Kept under /bulk because
+# that is what it is -- a reviewed, snapshot-backed, revertible batch -- and because
+# `/{batch_id}/revert` already serves it, so a removal run is undoable by the same call
+# as any other batch.
+
+
+def _default_removal_fields() -> list[Literal["Genres", "Tags"]]:
+    """`Genres` by default.
+
+    A named function rather than a lambda because pydantic's `default_factory` is typed
+    against the declared element type, and a lambda returning `list[str]` does not satisfy
+    `list[Literal["Genres", "Tags"]]` -- the annotation here is what makes it fit.
+    """
+    return ["Genres"]
+
+
+class GenreRemovalSelection(BaseModel):
+    """Which items to look in.
+
+    No `missing` filter here, unlike `BulkSelection`: this tool selects by *having* a
+    genre, which Jellyfin can express natively and cheaply, rather than by lacking
+    something, which it cannot.
+    """
+
+    kind: SelectionKind = "artist"
+    ids: list[str] | None = Field(default=None, description="explicit item ids, if known")
+    parent_id: str | None = None
+    search: str | None = None
+    limit: int = Field(default=100, ge=1, le=MAX_ITEMS)
+
+
+class GenreRemovalRequest(BaseModel):
+    """The value to remove, and where."""
+
+    selection: GenreRemovalSelection = GenreRemovalSelection()
+    genre: str = Field(
+        description="the genre value to remove. Matched exactly and case-insensitively; "
+        "a blank value is refused rather than treated as a wildcard.",
+    )
+    fields: list[Literal["Genres", "Tags"]] = Field(
+        default_factory=_default_removal_fields,
+        description="which arrays to remove from. Both are written by this application.",
+    )
+    decompose: bool = Field(
+        default=False,
+        description="also remove matching parts of a packed value ('Rock, Reggae' with "
+        "genre 'Reggae' becomes 'Rock'). Off by default: it is the destructive reading of "
+        "a value that may be one genre whose name contains a separator.",
+    )
+
+
+class GenreRemovalApplyRequest(BaseModel):
+    job_id: str = Field(description="from a /bulk/remove-genre/diff run")
+    selections: dict[str, list[str]] | None = Field(
+        default=None,
+        description="per-item fields, keyed by item id. An item absent from the map writes "
+        "nothing, so an unreviewed item is a no-op.",
+    )
+    confirm: bool = Field(default=False, description="must be true")
+
+
+def _removal_selection(
+    body: GenreRemovalSelection,
+    *,
+    genre: str,
+    fields: Sequence[str],
+    decompose: bool,
+) -> genre_removal.RemovalSelection:
+    """Translate the request body into the service's selection value."""
+    return genre_removal.RemovalSelection(
+        kind=body.kind,
+        parent_id=body.parent_id,
+        search=body.search,
+        ids=body.ids,
+        limit=body.limit,
+        target=genre,
+        fields=tuple(fields or ("Genres",)),
+        decompose=decompose,
+    )
+
+
+@router.post(
+    "/remove-genre/diff",
+    responses={
+        200: {
+            "model": RemovalStreamEvent,
+            "description": "Server-Sent Events, one frame per item.",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
+async def remove_genre_diff(
+    client: JellyfinDep,
+    body: Annotated[GenreRemovalRequest, Body()],
+) -> StreamingResponse:
+    """Find every item carrying a genre, and show what removing it would do.
+
+    **Writes nothing.** The job id in the summary is what a later apply must present, so a
+    library-wide removal can never be the first thing a session does.
+
+    Selection uses Jellyfin's own ``Genres``/``Tags`` filter, which is an exact,
+    case-insensitive, server-side match -- verified live. So the reported count is real
+    and there is no scan to truncate.
+    """
+    job = await genre_removal.build_job(
+        client=client,
+        selection=_removal_selection(
+            body.selection,
+            genre=body.genre,
+            fields=body.fields,
+            decompose=body.decompose,
+        ),
+    )
+    return StreamingResponse(
+        _stream(genre_removal.stream_job_diff(job)),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post(
+    "/remove-genre/apply",
+    responses={
+        200: {
+            "model": RemovalStreamEvent,
+            "description": "Server-Sent Events, one frame per item.",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
+async def remove_genre_apply(
+    client: JellyfinDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    body: Annotated[GenreRemovalApplyRequest, Body()],
+) -> StreamingResponse:
+    """Apply a reviewed removal, streaming progress and isolating failures per item.
+
+    ``confirm`` must be true and the job must exist, so a removal is never the first
+    request of a session. Every write is snapshotted and shares the job's ``batch_id``,
+    so the whole run is undoable through ``/{batch_id}/revert``.
+    """
+    if not body.confirm:
+        raise ValidationError(
+            "Refusing to remove a genre without confirm=true. Run /bulk/remove-genre/diff, "
+            "review the result and its job_id, then confirm."
+        )
+    job = await genre_removal.get_removal_job_or_404(body.job_id)
+
+    return StreamingResponse(
+        _stream(
+            genre_removal.apply_removal_job(
+                session=session, client=client, job=job, selections=body.selections
+            )
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/remove-genre/jobs", response_model=RemovalJobListResponse)
+async def list_removal_jobs() -> dict[str, Any]:
+    """Reviewed removals still available to apply."""
+    jobs = genre_removal.removal_registry().list()
+    return {"jobs": [job.summary() for job in jobs], "count": len(jobs)}
+
+
+@router.get("/genres", response_model=GenreVocabularyResponse)
+async def library_genres(
+    client: JellyfinDep,
+    item_kind: Annotated[
+        Literal["MusicArtist", "MusicAlbum", "Audio"],
+        Query(description="which media type's genre set to list; the sets differ"),
+    ] = "MusicArtist",
+) -> dict[str, Any]:
+    """The genre vocabulary this library actually uses.
+
+    Read from Jellyfin's genre entities rather than by scanning items: it is the same list
+    the server's own genre filter offers (39 entries for this library's artists), so what
+    the operator picks here is what they would pick there. Read-only.
+
+    Scoped per media type because the sets genuinely differ -- an album-only genre is not
+    an artist genre, and listing one type's genres for another would offer a value that
+    matches nothing.
+    """
+    entities = await client.genres(item_kind=item_kind)
+    names = sorted({entity.Name for entity in entities if entity.Name})
+    return {
+        "genres": names,
+        "count": len(names),
+        "note": (
+            "The library's genre entities, which is what Jellyfin's own filter lists. "
+            "Removal matches a value exactly and case-insensitively."
+        ),
+    }

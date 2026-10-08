@@ -200,6 +200,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bulk/genres": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Genres
+         * @description The genre vocabulary this library actually uses.
+         *
+         *     Read from Jellyfin's genre entities rather than by scanning items: it is the same list
+         *     the server's own genre filter offers (39 entries for this library's artists), so what
+         *     the operator picks here is what they would pick there. Read-only.
+         *
+         *     Scoped per media type because the sets genuinely differ -- an album-only genre is not
+         *     an artist genre, and listing one type's genres for another would offer a value that
+         *     matches nothing.
+         */
+        get: operations["library_genres_api_bulk_genres_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bulk/jobs": {
         parameters: {
             query?: never;
@@ -215,6 +243,77 @@ export interface paths {
          *     apply, not discovered afterwards.
          */
         get: operations["list_jobs_api_bulk_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bulk/remove-genre/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove Genre Apply
+         * @description Apply a reviewed removal, streaming progress and isolating failures per item.
+         *
+         *     ``confirm`` must be true and the job must exist, so a removal is never the first
+         *     request of a session. Every write is snapshotted and shares the job's ``batch_id``,
+         *     so the whole run is undoable through ``/{batch_id}/revert``.
+         */
+        post: operations["remove_genre_apply_api_bulk_remove_genre_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bulk/remove-genre/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove Genre Diff
+         * @description Find every item carrying a genre, and show what removing it would do.
+         *
+         *     **Writes nothing.** The job id in the summary is what a later apply must present, so a
+         *     library-wide removal can never be the first thing a session does.
+         *
+         *     Selection uses Jellyfin's own ``Genres``/``Tags`` filter, which is an exact,
+         *     case-insensitive, server-side match -- verified live. So the reported count is real
+         *     and there is no scan to truncate.
+         */
+        post: operations["remove_genre_diff_api_bulk_remove_genre_diff_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bulk/remove-genre/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Removal Jobs
+         * @description Reviewed removals still available to apply.
+         */
+        get: operations["list_removal_jobs_api_bulk_remove_genre_jobs_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -541,6 +640,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/genre-blacklist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Genre Blacklist
+         * @description The current blacklist and the three sources it is drawn from.
+         */
+        get: operations["read_genre_blacklist_api_settings_genre_blacklist_get"];
+        /**
+         * Write Genre Blacklist
+         * @description Replace the stored list from text.
+         *
+         *     Replace rather than merge: the input is a textarea, so what the operator sees when
+         *     they press save is what they mean, and a hidden union with previous entries would make
+         *     deleting one impossible.
+         *
+         *     A 200 with ``needs_review`` is the normal outcome for ambiguous input, not a 422.
+         *     Refusing the whole block would discard the entries that were unambiguous, and the
+         *     operator would have to work out which line was the problem from an error alone.
+         */
+        put: operations["write_genre_blacklist_api_settings_genre_blacklist_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/genre-blacklist/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Genre Blacklist
+         * @description What this text would blacklist, and which live genres it currently matches.
+         *
+         *     Reads the library's genre vocabulary so the answer is in the operator's own words.
+         *     This is what makes the comma ambiguity safe to offer: they see the exact values a
+         *     line would match *before* saving, rather than discovering it when a genre they wanted
+         *     is missing from a diff.
+         *
+         *     Reads only. The vocabulary is sampled from one media type rather than all three,
+         *     which is a deliberate approximation -- a genre on an album but no artist would not
+         *     be listed -- and the response says so rather than implying completeness.
+         */
+        post: operations["preview_genre_blacklist_api_settings_genre_blacklist_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/snapshots/{snapshot_id}/revert": {
         parameters: {
             query?: never;
@@ -837,6 +997,20 @@ export interface components {
             name: string;
             /** Rank */
             rank: number;
+        };
+        /**
+         * BlacklistConflictView
+         * @description A line that could be read two ways.
+         */
+        BlacklistConflictView: {
+            /** Fragments */
+            fragments: string[];
+            /** Message */
+            message: string;
+            /** Raw */
+            raw: string;
+            /** Whole */
+            whole: string;
         };
         /** Body_harvest_one_api_items__item_id__harvest_post */
         Body_harvest_one_api_items__item_id__harvest_post: {
@@ -1237,6 +1411,18 @@ export interface components {
             withheld: components["schemas"]["FieldChangeView"][];
         };
         /**
+         * EmptiedField
+         * @description A field a removal would leave empty, named so the UI can warn about it.
+         */
+        EmptiedField: {
+            /** Field */
+            field: string;
+            /** Item Id */
+            item_id: string;
+            /** Name */
+            name: string;
+        };
+        /**
          * FieldChangeView
          * @description One proposed change to one writable field.
          */
@@ -1276,6 +1462,137 @@ export interface components {
              * @enum {string}
              */
             mode: "keep_existing" | "fill_if_empty" | "replace" | "merge";
+        };
+        /**
+         * GenreBlacklistResponse
+         * @description The blacklist, with each source named.
+         *
+         *     Separately *and* merged. Separately, because an operator who saved an entry and did
+         *     not see it take effect needs to know which source supplied what; merged, because
+         *     ``effective`` is what the tag policy actually enforces.
+         */
+        GenreBlacklistResponse: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Defaults */
+            defaults: string[];
+            /** Effective */
+            effective: string[];
+            /** Entries */
+            entries: string[];
+            /** Env */
+            env: string[];
+            /** Note */
+            note: string;
+        };
+        /** GenreBlacklistUpdate */
+        GenreBlacklistUpdate: {
+            /**
+             * Allow Commas
+             * @description split lines on commas. Only set this once the operator has been told what a comma would mean; on a library whose genres contain commas it changes which values are blacklisted.
+             * @default false
+             */
+            allow_commas: boolean;
+            /**
+             * Raw
+             * @description one genre per line. A line containing a comma is reported rather than split, because a comma is also a legal character in a genre value.
+             * @default
+             */
+            raw: string;
+        };
+        /** GenreRemovalApplyRequest */
+        GenreRemovalApplyRequest: {
+            /**
+             * Confirm
+             * @description must be true
+             * @default false
+             */
+            confirm: boolean;
+            /**
+             * Job Id
+             * @description from a /bulk/remove-genre/diff run
+             */
+            job_id: string;
+            /**
+             * Selections
+             * @description per-item fields, keyed by item id. An item absent from the map writes nothing, so an unreviewed item is a no-op.
+             */
+            selections?: {
+                [key: string]: string[];
+            } | null;
+        };
+        /**
+         * GenreRemovalRequest
+         * @description The value to remove, and where.
+         */
+        GenreRemovalRequest: {
+            /**
+             * Decompose
+             * @description also remove matching parts of a packed value ('Rock, Reggae' with genre 'Reggae' becomes 'Rock'). Off by default: it is the destructive reading of a value that may be one genre whose name contains a separator.
+             * @default false
+             */
+            decompose: boolean;
+            /**
+             * Fields
+             * @description which arrays to remove from. Both are written by this application.
+             */
+            fields?: ("Genres" | "Tags")[];
+            /**
+             * Genre
+             * @description the genre value to remove. Matched exactly and case-insensitively; a blank value is refused rather than treated as a wildcard.
+             */
+            genre: string;
+            /**
+             * @default {
+             *       "kind": "artist",
+             *       "limit": 100
+             *     }
+             */
+            selection: components["schemas"]["GenreRemovalSelection"];
+        };
+        /**
+         * GenreRemovalSelection
+         * @description Which items to look in.
+         *
+         *     No `missing` filter here, unlike `BulkSelection`: this tool selects by *having* a
+         *     genre, which Jellyfin can express natively and cheaply, rather than by lacking
+         *     something, which it cannot.
+         */
+        GenreRemovalSelection: {
+            /**
+             * Ids
+             * @description explicit item ids, if known
+             */
+            ids?: string[] | null;
+            /**
+             * Kind
+             * @default artist
+             * @enum {string}
+             */
+            kind: "artist" | "album" | "song";
+            /**
+             * Limit
+             * @default 100
+             */
+            limit: number;
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Search */
+            search?: string | null;
+        };
+        /**
+         * GenreVocabularyResponse
+         * @description The genre values the library actually uses.
+         */
+        GenreVocabularyResponse: {
+            /** Count */
+            count: number;
+            /** Genres */
+            genres: string[];
+            /** Note */
+            note: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1592,6 +1909,30 @@ export interface components {
             /** Rows */
             rows: number;
         };
+        /** PreviewEntry */
+        PreviewEntry: {
+            /** Entry */
+            entry: string;
+            /** Matches */
+            matches: string[];
+            /** Norm */
+            norm: string;
+        };
+        /** PreviewResponse */
+        PreviewResponse: {
+            /** Conflicts */
+            conflicts: components["schemas"]["BlacklistConflictView"][];
+            /** Note */
+            note: string;
+            /** Preview */
+            preview: components["schemas"]["PreviewEntry"][];
+            /** Scanned Kind */
+            scanned_kind: string;
+            /** Vocabulary Size */
+            vocabulary_size: number;
+            /** Would Blacklist */
+            would_blacklist: string[];
+        };
         /** ReadMetricsView */
         ReadMetricsView: {
             /** Decisions */
@@ -1654,6 +1995,132 @@ export interface components {
             dry_run: boolean;
             /** Duration Ms */
             duration_ms: number;
+        };
+        /**
+         * RemovalItemEvent
+         * @description One item in a removal diff, carrying the per-field outcomes.
+         *
+         *     Extends ``BulkItemEvent`` rather than replacing it, so the shared fields -- and the
+         *     ``diff`` the review UI already knows how to render -- keep one definition.
+         */
+        RemovalItemEvent: {
+            /** Applicable */
+            applicable: boolean;
+            diff: components["schemas"]["DiffResponse"];
+            /** Index */
+            index: number;
+            /** Item Id */
+            item_id: string;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Removals */
+            removals?: components["schemas"]["RemovalOutcomeView"][];
+            /** Skipped Reason */
+            skipped_reason: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "item";
+        };
+        /** RemovalJobListResponse */
+        RemovalJobListResponse: {
+            /** Count */
+            count: number;
+            /** Jobs */
+            jobs: components["schemas"]["RemovalJobSummary"][];
+        };
+        /**
+         * RemovalJobSummary
+         * @description A reviewed removal, which additionally knows *what* it would remove.
+         *
+         *     A subclass rather than a reuse of ``BulkJobSummary``: the extra field is what makes the
+         *     list useful -- "which genre was this batch about" is the first thing an operator asks
+         *     when deciding whether to apply it. Returning the service's raw dict instead would have
+         *     had the field silently dropped by the parent response model, which is exactly the class
+         *     of drift these models exist to prevent.
+         */
+        RemovalJobSummary: {
+            /** Applicable */
+            applicable: number;
+            /** Applied */
+            applied: boolean;
+            /** Batch Id */
+            batch_id: string;
+            /** Created At */
+            created_at: string;
+            /** Items */
+            items: number;
+            /** Job Id */
+            job_id: string;
+            /** Removing */
+            removing?: string | null;
+            /** Skipped */
+            skipped: number;
+        };
+        /**
+         * RemovalOutcomeView
+         * @description What removing one target from one field of one item would do.
+         *
+         *     Mirrors ``domain.genre_removal.RemovalOutcome.as_dict()``. Declared rather than left as
+         *     a bare dict because the UI renders ``removed`` and ``emptied`` by name: a shape the
+         *     document does not describe is one the SPA has to guess at, and a guess cannot be
+         *     checked against the server.
+         */
+        RemovalOutcomeView: {
+            /** After */
+            after: string[];
+            /** Before */
+            before: string[];
+            /** Changed */
+            changed: boolean;
+            /** Emptied */
+            emptied: boolean;
+            /** Field */
+            field: string;
+            /** Removed */
+            removed: string[];
+            /** Target */
+            target: string;
+        };
+        /**
+         * RemovalSummaryEvent
+         * @description The closing frame of a removal run, which additionally knows the target.
+         */
+        RemovalSummaryEvent: {
+            /** Applicable */
+            applicable: number | null;
+            /** Applied */
+            applied: number | null;
+            /** Batch Id */
+            batch_id: string | null;
+            /** Batch Revert */
+            batch_revert: string | null;
+            /** Emptied */
+            emptied?: components["schemas"]["EmptiedField"][];
+            /** Failed */
+            failed: number | null;
+            /** Failures */
+            failures: {
+                [key: string]: unknown;
+            }[];
+            /** Items */
+            items: number | null;
+            /** Job Id */
+            job_id: string | null;
+            /** Removing */
+            removing?: string | null;
+            /** Reverted */
+            reverted: number | null;
+            /** Skipped */
+            skipped: number | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "summary";
         };
         /**
          * ScanInfo
@@ -1736,6 +2203,18 @@ export interface components {
              * @default 10
              */
             style_limit: number;
+        };
+        /** UpdateResponse */
+        UpdateResponse: {
+            /** Conflicts */
+            conflicts: components["schemas"]["BlacklistConflictView"][];
+            /** Count */
+            count: number;
+            /** Needs Review */
+            needs_review: boolean;
+            /** Saved */
+            saved: string[];
+            state: components["schemas"]["GenreBlacklistResponse"];
         };
         /** ValidationError */
         ValidationError: {
@@ -2025,6 +2504,38 @@ export interface operations {
             };
         };
     };
+    library_genres_api_bulk_genres_get: {
+        parameters: {
+            query?: {
+                /** @description which media type's genre set to list; the sets differ */
+                item_kind?: "MusicArtist" | "MusicAlbum" | "Audio";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenreVocabularyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_jobs_api_bulk_jobs_get: {
         parameters: {
             query?: never;
@@ -2041,6 +2552,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BulkJobListResponse"];
+                };
+            };
+        };
+    };
+    remove_genre_apply_api_bulk_remove_genre_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenreRemovalApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Server-Sent Events, one frame per item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemovalItemEvent"] | components["schemas"]["BulkAppliedEvent"] | components["schemas"]["BulkFailedEvent"] | components["schemas"]["BulkRevertedEvent"] | components["schemas"]["RemovalSummaryEvent"] | components["schemas"]["BulkErrorEvent"];
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_genre_diff_api_bulk_remove_genre_diff_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenreRemovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Server-Sent Events, one frame per item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemovalItemEvent"] | components["schemas"]["BulkAppliedEvent"] | components["schemas"]["BulkFailedEvent"] | components["schemas"]["BulkRevertedEvent"] | components["schemas"]["RemovalSummaryEvent"] | components["schemas"]["BulkErrorEvent"];
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_removal_jobs_api_bulk_remove_genre_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemovalJobListResponse"];
                 };
             };
         };
@@ -2514,6 +3113,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LibraryInfo"][];
+                };
+            };
+        };
+    };
+    read_genre_blacklist_api_settings_genre_blacklist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenreBlacklistResponse"];
+                };
+            };
+        };
+    };
+    write_genre_blacklist_api_settings_genre_blacklist_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenreBlacklistUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_genre_blacklist_api_settings_genre_blacklist_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenreBlacklistUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

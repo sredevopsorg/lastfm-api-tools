@@ -26,7 +26,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,6 +101,36 @@ class BulkJob:
             "created_at": self.created_at.isoformat(),
             "applied": self.applied,
         }
+
+
+@runtime_checkable
+class ApplicableJob(Protocol):
+    """What ``apply_job`` reads from a job.
+
+    Structural, so a second kind of batch can share this write path without inheriting
+    from ``BulkJob``. That matters more than it looks: the guarantee this module holds --
+    one snapshotted, etag-checked, payload-complete write per item -- lives in
+    ``apply_plan``, and a second apply loop written for genre removal would be a second
+    place for that guarantee to quietly not hold.
+
+    ``items`` and ``applicable_items`` are read-only properties, which the dataclasses
+    satisfy. ``applied`` is a plain attribute rather than a property, because
+    ``apply_job`` sets it to record that a job has been consumed -- a read-only
+    declaration would make that write a type error while the runtime behaviour was fine,
+    which is a worse contract than an honest one. Both ``BulkJob`` and ``RemovalJob``
+    declare it as a mutable field, so both satisfy this.
+    """
+
+    @property
+    def job_id(self) -> str: ...
+    @property
+    def batch_id(self) -> str: ...
+    @property
+    def items(self) -> Sequence[BulkItem]: ...
+    @property
+    def applicable_items(self) -> Sequence[BulkItem]: ...
+
+    applied: bool
 
 
 class JobRegistry:
@@ -321,7 +351,7 @@ async def apply_job(
     *,
     session: AsyncSession,
     client: JellyfinClient,
-    job: BulkJob,
+    job: ApplicableJob,
     fields: list[str] | None = None,
     selections: Mapping[str, Sequence[str]] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
@@ -418,7 +448,7 @@ async def apply_job(
     }
 
 
-def _default_selection_for(job: BulkJob, item: BulkItem) -> list[str]:
+def _default_selection_for(job: ApplicableJob, item: BulkItem) -> list[str]:
     """What an item would write if nobody ticked anything: its safe default.
 
     Empty for anything that needs review, which is what makes an un-reviewed item a

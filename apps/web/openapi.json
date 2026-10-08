@@ -809,6 +809,38 @@
         "title": "ArchiveTagView",
         "type": "object"
       },
+      "BlacklistConflictView": {
+        "description": "A line that could be read two ways.",
+        "properties": {
+          "fragments": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fragments",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "raw": {
+            "title": "Raw",
+            "type": "string"
+          },
+          "whole": {
+            "title": "Whole",
+            "type": "string"
+          }
+        },
+        "required": [
+          "raw",
+          "whole",
+          "fragments",
+          "message"
+        ],
+        "title": "BlacklistConflictView",
+        "type": "object"
+      },
       "Body_harvest_one_api_items__item_id__harvest_post": {
         "properties": {
           "search_fallback": {
@@ -1975,6 +2007,30 @@
         "title": "DiffResponse",
         "type": "object"
       },
+      "EmptiedField": {
+        "description": "A field a removal would leave empty, named so the UI can warn about it.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "name",
+          "field"
+        ],
+        "title": "EmptiedField",
+        "type": "object"
+      },
       "FieldChangeView": {
         "description": "One proposed change to one writable field.",
         "properties": {
@@ -2063,6 +2119,244 @@
           "mode"
         ],
         "title": "FieldPolicyOverride",
+        "type": "object"
+      },
+      "GenreBlacklistResponse": {
+        "description": "The blacklist, with each source named.\n\nSeparately *and* merged. Separately, because an operator who saved an entry and did\nnot see it take effect needs to know which source supplied what; merged, because\n``effective`` is what the tag policy actually enforces.",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "defaults": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Defaults",
+            "type": "array"
+          },
+          "effective": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Effective",
+            "type": "array"
+          },
+          "entries": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "env": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entries",
+          "defaults",
+          "env",
+          "effective",
+          "counts",
+          "note"
+        ],
+        "title": "GenreBlacklistResponse",
+        "type": "object"
+      },
+      "GenreBlacklistUpdate": {
+        "properties": {
+          "allow_commas": {
+            "default": false,
+            "description": "split lines on commas. Only set this once the operator has been told what a comma would mean; on a library whose genres contain commas it changes which values are blacklisted.",
+            "title": "Allow Commas",
+            "type": "boolean"
+          },
+          "raw": {
+            "default": "",
+            "description": "one genre per line. A line containing a comma is reported rather than split, because a comma is also a legal character in a genre value.",
+            "title": "Raw",
+            "type": "string"
+          }
+        },
+        "title": "GenreBlacklistUpdate",
+        "type": "object"
+      },
+      "GenreRemovalApplyRequest": {
+        "properties": {
+          "confirm": {
+            "default": false,
+            "description": "must be true",
+            "title": "Confirm",
+            "type": "boolean"
+          },
+          "job_id": {
+            "description": "from a /bulk/remove-genre/diff run",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "selections": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "per-item fields, keyed by item id. An item absent from the map writes nothing, so an unreviewed item is a no-op.",
+            "title": "Selections"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "GenreRemovalApplyRequest",
+        "type": "object"
+      },
+      "GenreRemovalRequest": {
+        "description": "The value to remove, and where.",
+        "properties": {
+          "decompose": {
+            "default": false,
+            "description": "also remove matching parts of a packed value ('Rock, Reggae' with genre 'Reggae' becomes 'Rock'). Off by default: it is the destructive reading of a value that may be one genre whose name contains a separator.",
+            "title": "Decompose",
+            "type": "boolean"
+          },
+          "fields": {
+            "description": "which arrays to remove from. Both are written by this application.",
+            "items": {
+              "enum": [
+                "Genres",
+                "Tags"
+              ],
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "genre": {
+            "description": "the genre value to remove. Matched exactly and case-insensitively; a blank value is refused rather than treated as a wildcard.",
+            "title": "Genre",
+            "type": "string"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/GenreRemovalSelection",
+            "default": {
+              "kind": "artist",
+              "limit": 100
+            }
+          }
+        },
+        "required": [
+          "genre"
+        ],
+        "title": "GenreRemovalRequest",
+        "type": "object"
+      },
+      "GenreRemovalSelection": {
+        "description": "Which items to look in.\n\nNo `missing` filter here, unlike `BulkSelection`: this tool selects by *having* a\ngenre, which Jellyfin can express natively and cheaply, rather than by lacking\nsomething, which it cannot.",
+        "properties": {
+          "ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "explicit item ids, if known",
+            "title": "Ids"
+          },
+          "kind": {
+            "default": "artist",
+            "enum": [
+              "artist",
+              "album",
+              "song"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "limit": {
+            "default": 100,
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
+          }
+        },
+        "title": "GenreRemovalSelection",
+        "type": "object"
+      },
+      "GenreVocabularyResponse": {
+        "description": "The genre values the library actually uses.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "genres",
+          "count",
+          "note"
+        ],
+        "title": "GenreVocabularyResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -2890,6 +3184,79 @@
         "title": "PartitionUsage",
         "type": "object"
       },
+      "PreviewEntry": {
+        "properties": {
+          "entry": {
+            "title": "Entry",
+            "type": "string"
+          },
+          "matches": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Matches",
+            "type": "array"
+          },
+          "norm": {
+            "title": "Norm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry",
+          "norm",
+          "matches"
+        ],
+        "title": "PreviewEntry",
+        "type": "object"
+      },
+      "PreviewResponse": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/BlacklistConflictView"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "preview": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewEntry"
+            },
+            "title": "Preview",
+            "type": "array"
+          },
+          "scanned_kind": {
+            "title": "Scanned Kind",
+            "type": "string"
+          },
+          "vocabulary_size": {
+            "title": "Vocabulary Size",
+            "type": "integer"
+          },
+          "would_blacklist": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Would Blacklist",
+            "type": "array"
+          }
+        },
+        "required": [
+          "preview",
+          "would_blacklist",
+          "conflicts",
+          "vocabulary_size",
+          "scanned_kind",
+          "note"
+        ],
+        "title": "PreviewResponse",
+        "type": "object"
+      },
       "ReadMetricsView": {
         "properties": {
           "decisions": {
@@ -3055,6 +3422,348 @@
           "changes"
         ],
         "title": "ReindexResponse",
+        "type": "object"
+      },
+      "RemovalItemEvent": {
+        "description": "One item in a removal diff, carrying the per-field outcomes.\n\nExtends ``BulkItemEvent`` rather than replacing it, so the shared fields -- and the\n``diff`` the review UI already knows how to render -- keep one definition.",
+        "properties": {
+          "applicable": {
+            "title": "Applicable",
+            "type": "boolean"
+          },
+          "diff": {
+            "$ref": "#/components/schemas/DiffResponse"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "removals": {
+            "items": {
+              "$ref": "#/components/schemas/RemovalOutcomeView"
+            },
+            "title": "Removals",
+            "type": "array"
+          },
+          "skipped_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped Reason"
+          },
+          "type": {
+            "const": "item",
+            "default": "item",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "item_id",
+          "name",
+          "kind",
+          "skipped_reason",
+          "applicable",
+          "diff"
+        ],
+        "title": "RemovalItemEvent",
+        "type": "object"
+      },
+      "RemovalJobListResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/RemovalJobSummary"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "jobs",
+          "count"
+        ],
+        "title": "RemovalJobListResponse",
+        "type": "object"
+      },
+      "RemovalJobSummary": {
+        "description": "A reviewed removal, which additionally knows *what* it would remove.\n\nA subclass rather than a reuse of ``BulkJobSummary``: the extra field is what makes the\nlist useful -- \"which genre was this batch about\" is the first thing an operator asks\nwhen deciding whether to apply it. Returning the service's raw dict instead would have\nhad the field silently dropped by the parent response model, which is exactly the class\nof drift these models exist to prevent.",
+        "properties": {
+          "applicable": {
+            "title": "Applicable",
+            "type": "integer"
+          },
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "removing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removing"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "batch_id",
+          "items",
+          "applicable",
+          "skipped",
+          "created_at",
+          "applied"
+        ],
+        "title": "RemovalJobSummary",
+        "type": "object"
+      },
+      "RemovalOutcomeView": {
+        "description": "What removing one target from one field of one item would do.\n\nMirrors ``domain.genre_removal.RemovalOutcome.as_dict()``. Declared rather than left as\na bare dict because the UI renders ``removed`` and ``emptied`` by name: a shape the\ndocument does not describe is one the SPA has to guess at, and a guess cannot be\nchecked against the server.",
+        "properties": {
+          "after": {
+            "items": {
+              "type": "string"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "before": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Before",
+            "type": "array"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "emptied": {
+            "title": "Emptied",
+            "type": "boolean"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "target",
+          "before",
+          "after",
+          "removed",
+          "changed",
+          "emptied"
+        ],
+        "title": "RemovalOutcomeView",
+        "type": "object"
+      },
+      "RemovalSummaryEvent": {
+        "description": "The closing frame of a removal run, which additionally knows the target.",
+        "properties": {
+          "applicable": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applicable"
+          },
+          "applied": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied"
+          },
+          "batch_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "batch_revert": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Revert"
+          },
+          "emptied": {
+            "items": {
+              "$ref": "#/components/schemas/EmptiedField"
+            },
+            "title": "Emptied",
+            "type": "array"
+          },
+          "failed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed"
+          },
+          "failures": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Failures",
+            "type": "array"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "removing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removing"
+          },
+          "reverted": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverted"
+          },
+          "skipped": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped"
+          },
+          "type": {
+            "const": "summary",
+            "default": "summary",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "batch_id",
+          "items",
+          "applicable",
+          "skipped",
+          "applied",
+          "failed",
+          "reverted",
+          "failures",
+          "batch_revert"
+        ],
+        "title": "RemovalSummaryEvent",
         "type": "object"
       },
       "ScanInfo": {
@@ -3259,6 +3968,44 @@
         "title": "TagPolicyRequest",
         "type": "object"
       },
+      "UpdateResponse": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/BlacklistConflictView"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "needs_review": {
+            "title": "Needs Review",
+            "type": "boolean"
+          },
+          "saved": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Saved",
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/components/schemas/GenreBlacklistResponse"
+          }
+        },
+        "required": [
+          "saved",
+          "count",
+          "conflicts",
+          "state",
+          "needs_review"
+        ],
+        "title": "UpdateResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -3304,7 +4051,7 @@
   "info": {
     "description": "Browse a Jellyfin music library, read artist/album/track metadata from the\nLast.fm API, keep a persistent incremental local archive of every Last.fm\nresponse, review a field-level diff, and apply the accepted changes back to\nJellyfin.\n",
     "title": "metaedit",
-    "version": "0.0.5"
+    "version": "0.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3817,6 +4564,57 @@
         ]
       }
     },
+    "/api/bulk/genres": {
+      "get": {
+        "description": "The genre vocabulary this library actually uses.\n\nRead from Jellyfin's genre entities rather than by scanning items: it is the same list\nthe server's own genre filter offers (39 entries for this library's artists), so what\nthe operator picks here is what they would pick there. Read-only.\n\nScoped per media type because the sets genuinely differ -- an album-only genre is not\nan artist genre, and listing one type's genres for another would offer a value that\nmatches nothing.",
+        "operationId": "library_genres_api_bulk_genres_get",
+        "parameters": [
+          {
+            "description": "which media type's genre set to list; the sets differ",
+            "in": "query",
+            "name": "item_kind",
+            "required": false,
+            "schema": {
+              "default": "MusicArtist",
+              "description": "which media type's genre set to list; the sets differ",
+              "enum": [
+                "MusicArtist",
+                "MusicAlbum",
+                "Audio"
+              ],
+              "title": "Item Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenreVocabularyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Genres",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
     "/api/bulk/jobs": {
       "get": {
         "description": "Reviewed diffs still available to apply, newest last.\n\nExposed because \"which batch am I about to apply\" should be answerable before an\napply, not discovered afterwards.",
@@ -3834,6 +4632,176 @@
           }
         },
         "summary": "List Jobs",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/bulk/remove-genre/apply": {
+      "post": {
+        "description": "Apply a reviewed removal, streaming progress and isolating failures per item.\n\n``confirm`` must be true and the job must exist, so a removal is never the first\nrequest of a session. Every write is snapshotted and shares the job's ``batch_id``,\nso the whole run is undoable through ``/{batch_id}/revert``.",
+        "operationId": "remove_genre_apply_api_bulk_remove_genre_apply_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenreRemovalApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "applied": "#/components/schemas/BulkAppliedEvent",
+                      "error": "#/components/schemas/BulkErrorEvent",
+                      "failed": "#/components/schemas/BulkFailedEvent",
+                      "item": "#/components/schemas/RemovalItemEvent",
+                      "reverted": "#/components/schemas/BulkRevertedEvent",
+                      "summary": "#/components/schemas/RemovalSummaryEvent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RemovalItemEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkAppliedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkRevertedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RemovalSummaryEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkErrorEvent"
+                    }
+                  ],
+                  "title": "Response 200 Remove Genre Apply Api Bulk Remove Genre Apply Post"
+                }
+              },
+              "text/event-stream": {}
+            },
+            "description": "Server-Sent Events, one frame per item."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Genre Apply",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/bulk/remove-genre/diff": {
+      "post": {
+        "description": "Find every item carrying a genre, and show what removing it would do.\n\n**Writes nothing.** The job id in the summary is what a later apply must present, so a\nlibrary-wide removal can never be the first thing a session does.\n\nSelection uses Jellyfin's own ``Genres``/``Tags`` filter, which is an exact,\ncase-insensitive, server-side match -- verified live. So the reported count is real\nand there is no scan to truncate.",
+        "operationId": "remove_genre_diff_api_bulk_remove_genre_diff_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenreRemovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "discriminator": {
+                    "mapping": {
+                      "applied": "#/components/schemas/BulkAppliedEvent",
+                      "error": "#/components/schemas/BulkErrorEvent",
+                      "failed": "#/components/schemas/BulkFailedEvent",
+                      "item": "#/components/schemas/RemovalItemEvent",
+                      "reverted": "#/components/schemas/BulkRevertedEvent",
+                      "summary": "#/components/schemas/RemovalSummaryEvent"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RemovalItemEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkAppliedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkFailedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkRevertedEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RemovalSummaryEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BulkErrorEvent"
+                    }
+                  ],
+                  "title": "Response 200 Remove Genre Diff Api Bulk Remove Genre Diff Post"
+                }
+              },
+              "text/event-stream": {}
+            },
+            "description": "Server-Sent Events, one frame per item."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Genre Diff",
+        "tags": [
+          "bulk"
+        ]
+      }
+    },
+    "/api/bulk/remove-genre/jobs": {
+      "get": {
+        "description": "Reviewed removals still available to apply.",
+        "operationId": "list_removal_jobs_api_bulk_remove_genre_jobs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovalJobListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Removal Jobs",
         "tags": [
           "bulk"
         ]
@@ -4722,6 +5690,110 @@
         "summary": "Libraries",
         "tags": [
           "library"
+        ]
+      }
+    },
+    "/api/settings/genre-blacklist": {
+      "get": {
+        "description": "The current blacklist and the three sources it is drawn from.",
+        "operationId": "read_genre_blacklist_api_settings_genre_blacklist_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenreBlacklistResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Genre Blacklist",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "description": "Replace the stored list from text.\n\nReplace rather than merge: the input is a textarea, so what the operator sees when\nthey press save is what they mean, and a hidden union with previous entries would make\ndeleting one impossible.\n\nA 200 with ``needs_review`` is the normal outcome for ambiguous input, not a 422.\nRefusing the whole block would discard the entries that were unambiguous, and the\noperator would have to work out which line was the problem from an error alone.",
+        "operationId": "write_genre_blacklist_api_settings_genre_blacklist_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenreBlacklistUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Write Genre Blacklist",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/settings/genre-blacklist/preview": {
+      "post": {
+        "description": "What this text would blacklist, and which live genres it currently matches.\n\nReads the library's genre vocabulary so the answer is in the operator's own words.\nThis is what makes the comma ambiguity safe to offer: they see the exact values a\nline would match *before* saving, rather than discovering it when a genre they wanted\nis missing from a diff.\n\nReads only. The vocabulary is sampled from one media type rather than all three,\nwhich is a deliberate approximation -- a genre on an album but no artist would not\nbe listed -- and the response says so rather than implying completeness.",
+        "operationId": "preview_genre_blacklist_api_settings_genre_blacklist_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenreBlacklistUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Genre Blacklist",
+        "tags": [
+          "settings"
         ]
       }
     },

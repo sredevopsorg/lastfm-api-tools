@@ -410,9 +410,96 @@ class BulkJobSummary(BaseModel):
     applied: bool
 
 
+class RemovalJobSummary(BulkJobSummary):
+    """A reviewed removal, which additionally knows *what* it would remove.
+
+    A subclass rather than a reuse of ``BulkJobSummary``: the extra field is what makes the
+    list useful -- "which genre was this batch about" is the first thing an operator asks
+    when deciding whether to apply it. Returning the service's raw dict instead would have
+    had the field silently dropped by the parent response model, which is exactly the class
+    of drift these models exist to prevent.
+    """
+
+    removing: str | None = None
+
+
+class RemovalJobListResponse(BaseModel):
+    jobs: list[RemovalJobSummary]
+    count: int
+
+
+class GenreVocabularyResponse(BaseModel):
+    """The genre values the library actually uses."""
+
+    genres: list[str]
+    count: int
+    note: str
+
+
 class BulkJobListResponse(BaseModel):
     jobs: list[BulkJobSummary]
     count: int
+
+
+# ------------------------------------------------------------ removal events
+
+
+class RemovalOutcomeView(BaseModel):
+    """What removing one target from one field of one item would do.
+
+    Mirrors ``domain.genre_removal.RemovalOutcome.as_dict()``. Declared rather than left as
+    a bare dict because the UI renders ``removed`` and ``emptied`` by name: a shape the
+    document does not describe is one the SPA has to guess at, and a guess cannot be
+    checked against the server.
+    """
+
+    field: str
+    target: str
+    before: list[str]
+    after: list[str]
+    removed: list[str]
+    changed: bool
+    emptied: bool
+
+
+class RemovalItemEvent(BulkItemEvent):
+    """One item in a removal diff, carrying the per-field outcomes.
+
+    Extends ``BulkItemEvent`` rather than replacing it, so the shared fields -- and the
+    ``diff`` the review UI already knows how to render -- keep one definition.
+    """
+
+    removals: list[RemovalOutcomeView] = Field(default_factory=list)
+
+
+class EmptiedField(BaseModel):
+    """A field a removal would leave empty, named so the UI can warn about it."""
+
+    item_id: str
+    name: str
+    field: str
+
+
+class RemovalSummaryEvent(BulkSummaryEvent):
+    """The closing frame of a removal run, which additionally knows the target."""
+
+    removing: str | None = None
+    emptied: list[EmptiedField] = Field(default_factory=list)
+
+
+# A discriminated union over the frames a removal stream can emit. Separate from
+# ``BulkStreamEvent`` because the item frame carries ``removals`` and the summary carries
+# ``emptied``; reusing the bulk union would document both streams as lacking the fields
+# that are the entire point of the removal one.
+RemovalStreamEvent = Annotated[
+    RemovalItemEvent
+    | BulkAppliedEvent
+    | BulkFailedEvent
+    | BulkRevertedEvent
+    | RemovalSummaryEvent
+    | BulkErrorEvent,
+    Field(discriminator="type"),
+]
 
 
 # --------------------------------------------------------------- stream events

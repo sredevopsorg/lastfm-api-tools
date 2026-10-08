@@ -322,3 +322,41 @@ table.grid th { vertical-align: bottom; }
 /* The body cap keeps pages tall rather than wide; a horizontal scroll on a browse table
    is the usual symptom of one column with chips in it. */
 .table-wrap { overflow-x: auto; }
+
+/* ------------------------------------------------------- settings / removal */
+
+/* The blacklist is free text, so it gets a monospace box: operators paste genre lists
+   from elsewhere, and a proportional font makes a stray space invisible -- which matters
+   when one entry per line is what disambiguates a comma-bearing genre. */
+.blacklist-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  resize: vertical;
+  margin: 0.5rem 0;
+}
+
+/* A value about to be removed reads as a deletion, not as an ordinary chip: the operator
+   is scanning for exactly this, and it is the one thing on the row that is destructive. */
+.chip.danger-chip {
+  border-color: var(--danger);
+  color: var(--danger);
+  text-decoration: line-through;
+}
+
+/* The comma conflict is a question, not an error, so it gets a block rather than a badge:
+   it names two readings and the operator has to choose one. */
+.conflict-box {
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+.conflict-box .badge { margin-left: 0; }
+.conflict-box li { margin: 0.35rem 0; }
