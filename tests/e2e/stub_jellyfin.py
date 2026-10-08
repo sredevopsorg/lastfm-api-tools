@@ -272,6 +272,32 @@ async def media_folders() -> dict[str, Any]:
     return {"Items": [{"Name": "Music", "ItemId": None, "CollectionType": "music"}]}
 
 
+@app.get("/Genres")
+async def genres(request: Request) -> dict[str, Any]:
+    """The genre entities for one media type.
+
+    Live-verified on 12.2.0 that this is the list the server's own genre filter offers (39
+    entries for the real library's artists), which is why the removal screen reads it
+    rather than scanning items for a vocabulary -- a scan would be a second opinion that
+    could disagree with the filter the operator actually sees.
+
+    Deduplicated and sorted by name, as the server returns them.
+    """
+    wanted = (request.query_params.get("includeItemTypes") or "").strip()
+    names: set[str] = set()
+    for row in LIBRARY.values():
+        if wanted and row.get("Type") != wanted:
+            continue
+        for genre in row.get("Genres") or []:
+            if genre:
+                names.add(str(genre))
+    ordered = sorted(names)
+    return {
+        "Items": [{"Name": name, "Id": name} for name in ordered],
+        "TotalRecordCount": len(ordered),
+    }
+
+
 @app.get("/Artists")
 async def artists(request: Request) -> dict[str, Any]:
     """Kept even though nothing calls it: it is the endpoint whose `includeItemTypes`
@@ -326,6 +352,28 @@ async def items(request: Request) -> dict[str, Any]:
     if years:
         wanted_years = {part for part in years.split(",") if part}
         found = [row for row in found if str(row.get("ProductionYear")) in wanted_years]
+
+    # `Genres`/`Tags`: an exact, case-insensitive, server-side filter.
+    #
+    # Live-verified on 12.2.0 that each parameter matches a whole stored value and folds
+    # case: `Genres=alternative rock` returns 23 artists, `Genres=ALTERNATIVE ROCK` the
+    # same 23, and every returned item genuinely carries that value -- `Genres=rock`
+    # returns 123 and none of them merely contain "rock". Modelling that faithfully is the
+    # point of this block: a stub that ignored the parameter would make every removal test
+    # pass while the real filter selected nothing, and a stub that applied substring
+    # matching would make the exact-match guarantee look broken.
+    #
+    # The two are queried independently and *anded*, matching the server: a request naming
+    # both asks for items carrying the value in both places.
+    for field in ("Genres", "Tags"):
+        wanted = request.query_params.get(field)
+        if not wanted:
+            continue
+        found = [
+            row
+            for row in found
+            if any(str(value).casefold() == wanted.casefold() for value in (row.get(field) or []))
+        ]
 
     # Sort BEFORE the window. Sorting after slicing would sort one page -- which is the
     # mistake the frontend made by sorting in the browser, and a stub that did it here

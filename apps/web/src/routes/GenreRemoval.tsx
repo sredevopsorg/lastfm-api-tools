@@ -224,16 +224,20 @@ export function GenreRemoval() {
         </div>
 
         <div className="row">
-          <label className="check">
-            genre
-            <input
-              list="library-genres"
-              value={form.genre}
-              placeholder="e.g. Gothic Rock"
-              onChange={(event) => setForm({ ...form, genre: event.target.value })}
-              style={{ minWidth: '16rem' }}
-            />
+          {/* `htmlFor` rather than wrapping the input, and the visible word is "genre to
+              remove" rather than "genre": the page heading is "Remove a genre", so a label
+              of "genre" is ambiguous to a screen reader and to a test locator alike. */}
+          <label className="check" htmlFor="removal-genre">
+            genre to remove
           </label>
+          <input
+            id="removal-genre"
+            list="library-genres"
+            value={form.genre}
+            placeholder="e.g. Gothic Rock"
+            onChange={(event) => setForm({ ...form, genre: event.target.value })}
+            style={{ minWidth: '16rem' }}
+          />
           <datalist id="library-genres">
             {(vocabulary.data?.genres ?? []).map((genre) => (
               <option key={genre} value={genre} />
