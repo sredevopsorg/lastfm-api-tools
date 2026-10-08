@@ -365,21 +365,41 @@ class JellyfinClient:
         start_index: int = 0,
         limit: int = 100,
         sort_by: Sequence[str] = ("SortName",),
+        sort_order: str = "Ascending",
+        filters: Mapping[str, str] | None = None,
         user_id: str | None = None,
     ) -> BaseItemDtoQueryResult:
+        """Browse items of one media type.
+
+        ``sort_order`` is a parameter rather than a constant because Jellyfin's
+        ``sortBy`` values are not self-ordering -- live-verified on 12.2.0 that
+        ``SortName`` ascending and descending return opposite ends of the library.
+        It stays a string because that is the wire format; callers translate a browse
+        order through ``domain.browse.jellyfin_sort_by``.
+
+        ``filters`` is a raw escape hatch for Jellyfin's own filter parameters
+        (``hasOverview``, ``Years``, ``MinPremiereDate`` ...). It is a mapping rather
+        than named arguments because the set is large and uneven -- some narrow the
+        result, some are accepted and ignored -- and the caller that knows which is
+        which is the service, not the transport. Only non-empty values are sent, so an
+        absent filter is absent from the request rather than sent as an empty string.
+        """
         params: dict[str, Any] = {
             "parentId": parent_id,
             "searchTerm": search_term,
             "startIndex": start_index,
             "limit": limit,
             "sortBy": ",".join(sort_by),
-            "sortOrder": "Ascending",
+            "sortOrder": sort_order,
             "recursive": "true",
             "includeItemTypes": kind,
             "fields": ",".join(ITEM_FIELDS),
             "enableTotalRecordCount": "true",
             "userId": user_id,
         }
+        for name, value in (filters or {}).items():
+            if value:
+                params[name] = value
         payload = await self._get_json("/Items", params)
         return BaseItemDtoQueryResult.model_validate(payload)
 

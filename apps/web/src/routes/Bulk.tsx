@@ -38,7 +38,16 @@ export function Bulk() {
   const queryClient = useQueryClient()
   const [kind, setKind] = useState<SelectionKind>('artist')
   const [limit, setLimit] = useState(25)
-  const [missingOnly, setMissingOnly] = useState(true)
+  // Empty by default: no filter, so a batch considers everything the selection covers.
+  //
+  // The boolean this replaced defaulted to ON and meant "lacking genres, ids or overview"
+  // for every media type. Over a song library that selected almost every song -- measured,
+  // 5,441 of 5,442 lack an overview -- so on a large library it was indistinguishable from
+  // no filter, and on a small one it genuinely selected everything. Now that the filter
+  // means something specific, defaulting it to `genres` would silently narrow every batch
+  // to one aspect: a review started without thinking about filters would omit items the
+  // operator expected to see, and the only signal would be a number they did not check.
+  const [missingAspects, setMissingAspects] = useState<string[]>([])
   const [minConfidence, setMinConfidence] = useState(0)
 
   const [reviewed, setReviewed] = useState<ReviewedItem[] | null>(null)
@@ -72,7 +81,13 @@ export function Bulk() {
       await api.stream<BulkEvent>(
         '/api/bulk/diff',
         {
-          selection: { kind, limit, missing_metadata: missingOnly },
+          selection: {
+            kind,
+            limit,
+            // Omitted when empty so the server's default applies, rather than sending
+            // an empty list the schema has to interpret.
+            ...(missingAspects.length ? { missing: missingAspects as never } : {}),
+          },
           min_confidence: minConfidence,
         },
         (event) => {
@@ -182,14 +197,26 @@ export function Bulk() {
               </button>
             ))}
           </div>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={missingOnly}
-              onChange={(event) => setMissingOnly(event.target.checked)}
-            />
-            only items missing metadata
-          </label>
+          {/* The same closed, per-kind aspect set as the Library screen. A free-text
+              filter here would let a batch be built from a query that matches nothing
+              without saying so, on a screen whose output is a write. */}
+          <span className="muted small">only items missing:</span>
+          {['genres', 'provider_ids', 'overview', 'tags'].map((aspect) => (
+            <label className="check" key={aspect}>
+              <input
+                type="checkbox"
+                checked={missingAspects.includes(aspect)}
+                onChange={() =>
+                  setMissingAspects((current) =>
+                    current.includes(aspect)
+                      ? current.filter((entry) => entry !== aspect)
+                      : [...current, aspect],
+                  )
+                }
+              />
+              {aspect}
+            </label>
+          ))}
           <label className="check">
             limit
             <input

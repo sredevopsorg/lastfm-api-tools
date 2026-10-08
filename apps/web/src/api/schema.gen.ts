@@ -60,6 +60,12 @@ export interface paths {
          *
          *     Reads what the derivation produced and never touches the network: this is what
          *     answers "what do I already know about X" without spending a request.
+         *
+         *     Ordering always ends in a tiebreaker. `ORDER BY name` alone is not a total order --
+         *     8 album rows and 2 track rows share a name with another row, and Postgres may return
+         *     tied rows in a different order per query, so `OFFSET` paging could return one row
+         *     twice and another never. That was not theoretical: paging the live album table one
+         *     row at a time returned 109 rows with 108 distinct, duplicating id 90 and losing id 8.
          */
         get: operations["archive_entities_api_archive_entities_get"];
         put?: never;
@@ -328,7 +334,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Items */
+        /**
+         * Items
+         * @description Browse one media type, ordered and narrowed.
+         *
+         *     `sort` is validated against an allow-list rather than passed through. Live-verified
+         *     on 12.2.0: an unrecognised `sortBy` is accepted and *silently ignored*, so a
+         *     pass-through would let the UI present items in one order while claiming another.
+         */
         get: operations["items_api_items_get"];
         put?: never;
         post?: never;
@@ -690,10 +703,25 @@ export interface components {
         ArchiveEntityListResponse: {
             /** Items */
             items: components["schemas"]["ArchiveEntitySummary"][];
+            /**
+             * Order
+             * @default asc
+             */
+            order: string;
             /** Page */
             page: number;
             /** Page Size */
             page_size: number;
+            /**
+             * Pages
+             * @default 1
+             */
+            pages: number;
+            /**
+             * Sort
+             * @default name
+             */
+            sort: string;
             /** Total */
             total: number;
         };
@@ -876,7 +904,7 @@ export interface components {
              * @default {
              *       "kind": "artist",
              *       "limit": 50,
-             *       "missing_metadata": false
+             *       "missing": []
              *     }
              */
             selection: components["schemas"]["BulkSelection"];
@@ -991,11 +1019,10 @@ export interface components {
              */
             limit: number;
             /**
-             * Missing Metadata
-             * @description only items lacking genres, provider ids or an overview
-             * @default false
+             * Missing
+             * @description only items lacking any of these: genres, provider_ids, overview, tags. Aspects that do not apply to the media type are ignored, so asking a song selection for `overview` selects nothing rather than everything.
              */
-            missing_metadata: boolean;
+            missing?: ("genres" | "provider_ids" | "overview" | "tags")[];
             /** Parent Id */
             parent_id?: string | null;
             /** Search */
@@ -1393,7 +1420,7 @@ export interface components {
              * @default {
              *       "kind": "artist",
              *       "limit": 50,
-             *       "missing_metadata": false
+             *       "missing": []
              *     }
              */
             selection: components["schemas"]["HarvestSelection"];
@@ -1431,11 +1458,10 @@ export interface components {
              */
             limit: number;
             /**
-             * Missing Metadata
-             * @description only items lacking genres, provider ids or an overview
-             * @default false
+             * Missing
+             * @description only items lacking any of these: genres, provider_ids, overview, tags. Aspects that do not apply to the media type are ignored, so asking a song selection for `overview` selects nothing rather than everything.
              */
-            missing_metadata: boolean;
+            missing?: ("genres" | "provider_ids" | "overview" | "tags")[];
             /** Parent Id */
             parent_id?: string | null;
             /** Search */
@@ -1507,6 +1533,19 @@ export interface components {
         ItemSummaryPage: {
             /** Items */
             items: components["schemas"]["ItemSummary"][];
+            /**
+             * Order
+             * @enum {string}
+             */
+            order: "asc" | "desc";
+            /** Page Size */
+            page_size: number;
+            scan?: components["schemas"]["ScanInfo"] | null;
+            /**
+             * Sort
+             * @enum {string}
+             */
+            sort: "name" | "sort_name" | "date_added" | "year" | "random";
             /** Start Index */
             start_index: number;
             /** Total */
@@ -1615,6 +1654,25 @@ export interface components {
             dry_run: boolean;
             /** Duration Ms */
             duration_ms: number;
+        };
+        /**
+         * ScanInfo
+         * @description What a filter that required reading items actually read.
+         *
+         *     A filtered count is only meaningful next to the number it was drawn from. Without
+         *     this, "38 items missing genres" is indistinguishable from "38 in the first 200",
+         *     and silence about the difference is how the previous implementation managed to print
+         *     an unfiltered total above a filtered table for as long as it did.
+         */
+        ScanInfo: {
+            /** Limit */
+            limit: number;
+            /** Matched */
+            matched: number;
+            /** Scanned */
+            scanned: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * SearchAlternativeView
@@ -1752,6 +1810,10 @@ export interface operations {
                 search?: string | null;
                 page?: number;
                 page_size?: number;
+                /** @description field to order by; `id` breaks ties */
+                sort?: "name" | "listeners" | "playcount" | "last_seen";
+                /** @description direction */
+                order?: "asc" | "desc";
             };
             header?: never;
             path?: never;
@@ -2123,8 +2185,16 @@ export interface operations {
                 search?: string | null;
                 start_index?: number;
                 page_size?: number;
-                /** @description only items lacking genres, provider ids or an overview */
-                missing_metadata?: boolean;
+                /** @description field to order by */
+                sort?: "name" | "sort_name" | "date_added" | "year" | "random";
+                /** @description direction; ignored by `random` */
+                order?: "asc" | "desc";
+                /** @description Jellyfin's own filter: true returns only items with an overview, false only those without. Applied by the server, so `total` reflects it. */
+                has_overview?: boolean | null;
+                /** @description Jellyfin's own filter: exact production year. */
+                year?: number | null;
+                /** @description only items lacking any of these: genres, provider_ids, overview, tags. Jellyfin cannot express this for music, so it requires a scan and the response reports what the scan covered under `scan`. Aspects that do not apply to the media type are ignored rather than matching everything. */
+                missing?: ("genres" | "provider_ids" | "overview" | "tags")[] | null;
             };
             header?: never;
             path?: never;

@@ -2,12 +2,15 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   api,
+  type ArchiveEntitiesQuery,
   type ArchiveEntityDetail,
   type ArchiveEntitySummary,
   type ArchiveStats,
   type ReindexResponse,
 } from '../api/client'
 import { ErrorNote, bytes } from '../components/ui'
+import { Pagination, SortHeader } from '../components/table'
+import type { SortState } from '../components/paging'
 
 const stateBadge = { ok: 'ok', warning: 'warn', cap_reached: 'danger' } as const
 const KINDS = ['artist', 'album', 'track'] as const
@@ -26,6 +29,11 @@ export function Archive() {
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState('')
   const [openId, setOpenId] = useState<number | null>(null)
+  const [sortState, setSortState] = useState<SortState>({ sort: 'name', order: 'asc' })
+  // The API is 1-based here and 0-based for the library browse, which is a difference
+  // worth containing in one place rather than at every call site.
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 50
 
   const stats = useQuery({
     queryKey: ['archive-stats'],
@@ -34,9 +42,16 @@ export function Archive() {
   })
 
   const entities = useQuery({
-    queryKey: ['archive-entities', kind, search],
+    queryKey: ['archive-entities', kind, search, sortState.sort, sortState.order, page],
     queryFn: () =>
-      api.archiveEntities({ kind, page_size: 50, ...(search ? { search } : {}) }),
+      api.archiveEntities({
+        kind,
+        page,
+        page_size: PAGE_SIZE,
+        sort: sortState.sort as NonNullable<ArchiveEntitiesQuery['sort']>,
+        order: sortState.order,
+        ...(search ? { search } : {}),
+      }),
   })
 
   const detail = useQuery({
@@ -53,6 +68,13 @@ export function Archive() {
       void queryClient.invalidateQueries({ queryKey: ['archive-entities'] })
     },
   })
+
+  // Sorting resets to page 1: staying on page 7 of a differently-ordered set shows rows
+  // the operator did not navigate to, and an empty table when the set shrank.
+  function applySort(next: SortState) {
+    setSortState(next)
+    setPage(1)
+  }
 
   const data = stats.data
 
@@ -167,6 +189,7 @@ export function Archive() {
                 onClick={() => {
                   setKind(entry)
                   setOpenId(null)
+                  setPage(1)
                 }}
               >
                 {entry}s
@@ -178,6 +201,7 @@ export function Archive() {
             onSubmit={(event) => {
               event.preventDefault()
               setSearch(draft)
+              setPage(1)
             }}
           >
             <input
@@ -195,13 +219,30 @@ export function Archive() {
             <p className="muted small">
               {entities.data.total} stored {kind}s
             </p>
+            <div className="table-wrap">
             <table className="grid">
               <thead>
                 <tr>
-                  <th>Name</th>
+                  <SortHeader
+                    column="name"
+                    label="Name"
+                    current={sortState}
+                    onSort={applySort}
+                  />
                   <th>MBID</th>
                   <th>Tags</th>
-                  <th>Last seen</th>
+                  <SortHeader
+                    column="listeners"
+                    label="Listeners"
+                    current={sortState}
+                    onSort={applySort}
+                  />
+                  <SortHeader
+                    column="last_seen"
+                    label="Last seen"
+                    current={sortState}
+                    onSort={applySort}
+                  />
                 </tr>
               </thead>
               <tbody>
@@ -228,6 +269,7 @@ export function Archive() {
                         </span>
                       ))}
                     </td>
+                    <td className="muted small">{entity.listeners?.toLocaleString() ?? '—'}</td>
                     <td className="muted small">
                       {entity.last_seen_at
                         ? new Date(entity.last_seen_at).toLocaleDateString()
@@ -237,13 +279,24 @@ export function Archive() {
                 ))}
                 {entities.data.items.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="muted">
-                      Nothing stored yet. The archive fills as Last.fm is queried.
+                    <td colSpan={5} className="muted">
+                      {search
+                        ? 'No stored entity matches that name.'
+                        : 'Nothing stored yet. The archive fills as Last.fm is queried.'}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+            </div>
+            <Pagination
+              startIndex={(page - 1) * PAGE_SIZE}
+              pageSize={PAGE_SIZE}
+              returned={entities.data.items.length}
+              total={entities.data.total}
+              unit="stored entities"
+              onStartIndex={(next) => setPage(Math.floor(next / PAGE_SIZE) + 1)}
+            />
           </>
         )}
       </div>

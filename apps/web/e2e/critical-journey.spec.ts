@@ -25,6 +25,38 @@ async function stubState(request: APIRequestContext) {
   }
 }
 
+/**
+ * The body of the nth write, failing with a useful message when there is none.
+ *
+ * `noUncheckedIndexedAccess` makes `writes[0]` possibly-undefined, which is correct: an
+ * empty log is a real state and indexing into it would throw a TypeError from inside
+ * Playwright rather than an assertion naming the problem. The e2e specs had never been
+ * typechecked before this, so seven of these were live.
+ */
+function writeBody(
+  state: { writes: { item_id: string; body: Record<string, unknown> }[] },
+  index = 0,
+): Record<string, unknown> {
+  const write = state.writes[index]
+  if (!write) {
+    throw new Error(
+      `expected at least ${index + 1} write(s), got ${state.writes.length}. ` +
+        'An empty write log means the app never sent the request.',
+    )
+  }
+  return write.body
+}
+
+/** One item from the stub's library, failing when the id is unknown. */
+function libraryItem(
+  state: { items: Record<string, Record<string, unknown>> },
+  itemId: string,
+): Record<string, unknown> {
+  const item = state.items[itemId]
+  if (!item) throw new Error(`the stub library has no item ${itemId}`)
+  return item
+}
+
 test.beforeEach(async ({ request }) => {
   await request.post(`${STUB}/__reset`)
 })
@@ -48,20 +80,30 @@ test('the library lists real items and reports what is missing', async ({ page }
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible()
 
-  await expect(page.getByRole('link', { name: 'Radiohead' })).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByRole('link', { name: 'Portishead' })).toBeVisible()
+  // Searched rather than assumed to be on page one. The stub library now holds more than
+  // a page of artists so that paging can be tested at all, and "Radiohead" sorts past the
+  // first 50 -- which is itself the point: a test that assumed otherwise was asserting
+  // that the library fits on one page, not that browsing works.
+  await page.getByLabel('Search artists').fill('Portishead')
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
 
-  // Radiohead has a genre, Portishead has none, so the missing column must differ.
+  await expect(page.getByRole('link', { name: 'Portishead' })).toBeVisible({ timeout: 15_000 })
+  // Portishead has no genres, so the missing column must say so.
   const row = page.getByRole('row', { name: /Portishead/ })
   await expect(row.getByText('genres')).toBeVisible()
 })
 
 test('search narrows the library', async ({ page }) => {
   await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible()
+
+  // Both are reachable before the search, by name rather than by luck of the page.
+  await page.getByLabel('Search artists').fill('Radiohead')
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Radiohead' })).toBeVisible({ timeout: 15_000 })
 
   await page.getByLabel('Search artists').fill('Portishead')
-  await page.getByRole('button', { name: 'Search' }).click()
+  await page.getByRole('button', { name: 'Search', exact: true }).click()
 
   await expect(page.getByRole('link', { name: 'Portishead' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Radiohead' })).toHaveCount(0)
@@ -103,7 +145,7 @@ test('applying writes the selected field and preserves everything else', async (
 
   const state = await stubState(request)
   expect(state.writes).toHaveLength(1)
-  const sent = state.writes[0].body
+  const sent = writeBody(state)
 
   // Genres changed...
   expect(sent.Genres).toEqual(expect.arrayContaining(['Rock']))
@@ -117,7 +159,7 @@ test('applying writes the selected field and preserves everything else', async (
   })
 
   // The server now holds the new genres, so the write really landed.
-  const after = state.items['art-1']
+  const after = libraryItem(state, 'art-1')
   expect(after.Genres).toEqual(expect.arrayContaining(['Rock']))
   expect(after.Tags).toEqual(['keep-me'])
 })
@@ -136,17 +178,17 @@ test('undoing restores the previous values', async ({ page, request }) => {
   // The history is what makes the write reversible.
   await expect(page.getByRole('heading', { name: 'History' })).toBeVisible()
   const applied = await stubState(request)
-  const afterApply = applied.items['art-1'].Genres
+  const afterApply = libraryItem(applied, 'art-1').Genres
   expect(afterApply).toEqual(expect.arrayContaining(['Rock']))
 
   await page.getByRole('button', { name: 'revert' }).first().click()
 
   await expect
-    .poll(async () => (await stubState(request)).items['art-1'].Genres)
+    .poll(async () => libraryItem(await stubState(request), 'art-1').Genres)
     .not.toEqual(afterApply)
 })
 
-test('a revert is itself recorded, so history is never mutated', async ({ page, request }) => {
+test('a revert is itself recorded, so history is never mutated', async ({ page }) => {
   await page.goto('/edit/art-1')
   await expect(page.getByRole('heading', { name: /Proposed changes/ })).toBeVisible({
     timeout: 15_000,
@@ -165,7 +207,10 @@ test('a revert is itself recorded, so history is never mutated', async ({ page, 
   await expect(history.getByText('revert', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
 })
 
-test('bulk reviews a selection and refuses to apply without a review', async ({ page, request }) => {
+test('bulk reviews a selection and refuses to apply without a review', async ({
+  page,
+  request,
+}) => {
   await page.goto('/bulk')
   await expect(page.getByRole('heading', { name: 'Bulk' })).toBeVisible()
 
@@ -173,11 +218,35 @@ test('bulk reviews a selection and refuses to apply without a review', async ({ 
   await expect(page.getByRole('button', { name: /^Apply to/ })).toHaveCount(0)
   expect((await stubState(request)).writes).toHaveLength(0)
 
-  await page.getByRole('button', { name: 'Review' }).click()
+  // No aspect filter by default, so the batch considers every artist the selection covers.
+  for (const aspect of ['genres', 'provider_ids', 'overview', 'tags']) {
+    await expect(page.getByRole('checkbox', { name: aspect })).not.toBeChecked()
+  }
 
-  await expect(page.getByRole('heading', { name: /^Reviewed \d/ })).toBeVisible({
-    timeout: 20_000,
-  })
+  // The seed archives Last.fm data for exactly ONE artist (Radiohead), and the batch takes
+  // the first N artists by sort name. So the batch is widened to reach it, rather than the
+  // spec assuming the library fits the default page -- which was true before the stub grew
+  // enough artists to test paging, and is exactly the kind of fixture assumption that
+  // makes a test pass for the wrong reason.
+  const limit = page.getByLabel(/limit/i)
+  await limit.fill('500')
+  // Asserted, not assumed: `fill` sets the value, and the component only records it if
+  // onChange fired. Without this the review ran with the old limit and the spec read a
+  // stale "Reviewed 0 items" -- which is how it failed while the backend was correct.
+  await expect(limit).toHaveValue('500')
+
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
+
+  // Wait for the review to actually complete before reading its summary. The heading
+  // appears as soon as the first frame arrives, so waiting on the heading alone raced the
+  // rest of the stream and read a partially-filled table.
+  const summary = page.getByText(/\d+ items · \d+ applicable · \d+ skipped/)
+  await expect(summary).toBeVisible({ timeout: 30_000 })
+  await expect(summary).not.toContainText('0 items', { timeout: 30_000 })
+  // At least one item must be applicable, or the apply below has nothing to do. Asserted
+  // non-zero rather than to a number: items without archived data are reported as skipped
+  // with a reason, which is the behaviour worth keeping, not a count worth freezing.
+  await expect(summary).not.toContainText('· 0 applicable ·', { timeout: 30_000 })
   // Reviewing writes nothing; only the apply can.
   expect((await stubState(request)).writes).toHaveLength(0)
 
@@ -211,7 +280,7 @@ test.describe('fetching from Last.fm', () => {
     await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible()
 
     await page.getByLabel('Search albums').fill('OK Computer')
-    await page.getByRole('button', { name: 'Search' }).click()
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
 
     const row = page.getByRole('row', { name: /OK Computer/ })
     await expect(row).toBeVisible({ timeout: 15_000 })
@@ -333,7 +402,7 @@ test.describe('the review and confirm step', () => {
     // The write happened, and only the ticked field changed.
     const state = await stubState(request)
     expect(state.writes).toHaveLength(1)
-    const sent = state.writes[0].body
+    const sent = writeBody(state)
     expect(sent.Genres).toEqual(expect.arrayContaining(['alternative rock']))
     // Unselected fields survive. `AlbumArtist` is deliberately *not* in the payload: the
     // writable set is fixed and does not include the album-artist link, so asserting on

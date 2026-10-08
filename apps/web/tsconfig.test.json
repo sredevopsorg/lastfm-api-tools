@@ -1,0 +1,15 @@
+{
+  "//": "Typecheck the node-run tests. They are excluded from the app build because they are not part of the bundle and node needs `./x.ts` import specifiers, which the app's `bundler` resolution forbids. Without this they would be the only source in the repo that nothing checks.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "src/components/paging.ts"
+  ],
+  "exclude": []
+}

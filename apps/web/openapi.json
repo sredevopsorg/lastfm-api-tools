@@ -403,6 +403,11 @@
             "title": "Items",
             "type": "array"
           },
+          "order": {
+            "default": "asc",
+            "title": "Order",
+            "type": "string"
+          },
           "page": {
             "title": "Page",
             "type": "integer"
@@ -410,6 +415,16 @@
           "page_size": {
             "title": "Page Size",
             "type": "integer"
+          },
+          "pages": {
+            "default": 1,
+            "title": "Pages",
+            "type": "integer"
+          },
+          "sort": {
+            "default": "name",
+            "title": "Sort",
+            "type": "string"
           },
           "total": {
             "title": "Total",
@@ -929,7 +944,7 @@
             "default": {
               "kind": "artist",
               "limit": 50,
-              "missing_metadata": false
+              "missing": []
             }
           },
           "tag_policy": {
@@ -1211,11 +1226,19 @@
             "title": "Limit",
             "type": "integer"
           },
-          "missing_metadata": {
-            "default": false,
-            "description": "only items lacking genres, provider ids or an overview",
-            "title": "Missing Metadata",
-            "type": "boolean"
+          "missing": {
+            "description": "only items lacking any of these: genres, provider_ids, overview, tags. Aspects that do not apply to the media type are ignored, so asking a song selection for `overview` selects nothing rather than everything.",
+            "items": {
+              "enum": [
+                "genres",
+                "provider_ids",
+                "overview",
+                "tags"
+              ],
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
           },
           "parent_id": {
             "anyOf": [
@@ -2391,7 +2414,7 @@
             "default": {
               "kind": "artist",
               "limit": 50,
-              "missing_metadata": false
+              "missing": []
             }
           }
         },
@@ -2482,11 +2505,19 @@
             "title": "Limit",
             "type": "integer"
           },
-          "missing_metadata": {
-            "default": false,
-            "description": "only items lacking genres, provider ids or an overview",
-            "title": "Missing Metadata",
-            "type": "boolean"
+          "missing": {
+            "description": "only items lacking any of these: genres, provider_ids, overview, tags. Aspects that do not apply to the media type are ignored, so asking a song selection for `overview` selects nothing rather than everything.",
+            "items": {
+              "enum": [
+                "genres",
+                "provider_ids",
+                "overview",
+                "tags"
+              ],
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
           },
           "parent_id": {
             "anyOf": [
@@ -2675,6 +2706,39 @@
             "title": "Items",
             "type": "array"
           },
+          "order": {
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Order",
+            "type": "string"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "scan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sort": {
+            "enum": [
+              "name",
+              "sort_name",
+              "date_added",
+              "year",
+              "random"
+            ],
+            "title": "Sort",
+            "type": "string"
+          },
           "start_index": {
             "title": "Start Index",
             "type": "integer"
@@ -2687,7 +2751,10 @@
         "required": [
           "items",
           "total",
-          "start_index"
+          "start_index",
+          "page_size",
+          "sort",
+          "order"
         ],
         "title": "ItemSummaryPage",
         "type": "object"
@@ -2990,6 +3057,35 @@
         "title": "ReindexResponse",
         "type": "object"
       },
+      "ScanInfo": {
+        "description": "What a filter that required reading items actually read.\n\nA filtered count is only meaningful next to the number it was drawn from. Without\nthis, \"38 items missing genres\" is indistinguishable from \"38 in the first 200\",\nand silence about the difference is how the previous implementation managed to print\nan unfiltered total above a filtered table for as long as it did.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "matched": {
+            "title": "Matched",
+            "type": "integer"
+          },
+          "scanned": {
+            "title": "Scanned",
+            "type": "integer"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scanned",
+          "matched",
+          "truncated",
+          "limit"
+        ],
+        "title": "ScanInfo",
+        "type": "object"
+      },
       "SearchAlternativeView": {
         "description": "A Last.fm search hit, offered when the derived query missed.\n\nA miss that says only \"not found\" leaves the operator with nothing to do; these give\nthem something to pick.",
         "properties": {
@@ -3260,7 +3356,7 @@
     },
     "/api/archive/entities": {
       "get": {
-        "description": "Search the derived layer offline.\n\nReads what the derivation produced and never touches the network: this is what\nanswers \"what do I already know about X\" without spending a request.",
+        "description": "Search the derived layer offline.\n\nReads what the derivation produced and never touches the network: this is what\nanswers \"what do I already know about X\" without spending a request.\n\nOrdering always ends in a tiebreaker. `ORDER BY name` alone is not a total order --\n8 album rows and 2 track rows share a name with another row, and Postgres may return\ntied rows in a different order per query, so `OFFSET` paging could return one row\ntwice and another never. That was not theoretical: paging the live album table one\nrow at a time returned 109 rows with 108 distinct, duplicating id 90 and losing id 8.",
         "operationId": "archive_entities_api_archive_entities_get",
         "parameters": [
           {
@@ -3333,6 +3429,40 @@
               "minimum": 1,
               "title": "Page Size",
               "type": "integer"
+            }
+          },
+          {
+            "description": "field to order by; `id` breaks ties",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "name",
+              "description": "field to order by; `id` breaks ties",
+              "enum": [
+                "name",
+                "listeners",
+                "playcount",
+                "last_seen"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "direction",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "direction",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           }
         ],
@@ -3620,7 +3750,7 @@
                   "selection": {
                     "kind": "artist",
                     "limit": 50,
-                    "missing_metadata": false
+                    "missing": []
                   }
                 }
               }
@@ -3809,7 +3939,7 @@
                   "selection": {
                     "kind": "artist",
                     "limit": 50,
-                    "missing_metadata": false
+                    "missing": []
                   }
                 }
               }
@@ -3941,6 +4071,7 @@
     },
     "/api/items": {
       "get": {
+        "description": "Browse one media type, ordered and narrowed.\n\n`sort` is validated against an allow-list rather than passed through. Live-verified\non 12.2.0: an unrecognised `sortBy` is accepted and *silently ignored*, so a\npass-through would let the UI present items in one order while claiming another.",
         "operationId": "items_api_items_get",
         "parameters": [
           {
@@ -4014,15 +4145,103 @@
             }
           },
           {
-            "description": "only items lacking genres, provider ids or an overview",
+            "description": "field to order by",
             "in": "query",
-            "name": "missing_metadata",
+            "name": "sort",
             "required": false,
             "schema": {
-              "default": false,
-              "description": "only items lacking genres, provider ids or an overview",
-              "title": "Missing Metadata",
-              "type": "boolean"
+              "default": "sort_name",
+              "description": "field to order by",
+              "enum": [
+                "name",
+                "sort_name",
+                "date_added",
+                "year",
+                "random"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "direction; ignored by `random`",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "direction; ignored by `random`",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Jellyfin's own filter: true returns only items with an overview, false only those without. Applied by the server, so `total` reflects it.",
+            "in": "query",
+            "name": "has_overview",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Jellyfin's own filter: true returns only items with an overview, false only those without. Applied by the server, so `total` reflects it.",
+              "title": "Has Overview"
+            }
+          },
+          {
+            "description": "Jellyfin's own filter: exact production year.",
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9999,
+                  "minimum": 1000,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Jellyfin's own filter: exact production year.",
+              "title": "Year"
+            }
+          },
+          {
+            "description": "only items lacking any of these: genres, provider_ids, overview, tags. Jellyfin cannot express this for music, so it requires a scan and the response reports what the scan covered under `scan`. Aspects that do not apply to the media type are ignored rather than matching everything.",
+            "in": "query",
+            "name": "missing",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "enum": [
+                      "genres",
+                      "provider_ids",
+                      "overview",
+                      "tags"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only items lacking any of these: genres, provider_ids, overview, tags. Jellyfin cannot express this for music, so it requires a scan and the response reports what the scan covered under `scan`. Aspects that do not apply to the media type are ignored rather than matching everything.",
+              "title": "Missing"
             }
           }
         ],

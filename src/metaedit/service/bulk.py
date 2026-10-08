@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from metaedit.adapters.jellyfin.client import JellyfinClient
 from metaedit.db.models import Snapshot
+from metaedit.domain.browse_filters import SummaryLike, is_missing, normalise_aspects
 from metaedit.domain.confidence import Confidence
 from metaedit.domain.diff import DiffPlan
 from metaedit.domain.errors import MetaeditError, ValidationError, public_error_text
@@ -149,9 +150,16 @@ async def select_items(
     search: str | None = None,
     ids: Iterable[str] | None = None,
     limit: int = 50,
-    missing_metadata: bool = False,
+    missing: Iterable[str] | None = None,
 ) -> list[Any]:
-    """The items this batch will consider. Ordering is the server's, so it is stable."""
+    """The items this batch will consider. Ordering is the server's, so it is stable.
+
+    ``missing`` names the aspects to filter on, per media type, and uses the same
+    definition as the library browse. The boolean this replaced -- "missing metadata" --
+    lumped genres, provider ids and overview together for every media type, which over a
+    song library matched almost everything: a song without an overview is the normal state
+    of a song (measured on a live library, 5,441 of 5,442 songs have none).
+    """
     if limit > MAX_BATCH_ITEMS:
         raise ValidationError(
             f"limit {limit} exceeds the {MAX_BATCH_ITEMS} item batch cap; narrow the query"
@@ -169,14 +177,38 @@ async def select_items(
         kind=item_kind, parent_id=parent_id, search_term=search, limit=limit
     )
     items = list(result.Items)
-    if missing_metadata:
-        # Jellyfin has no music-library filter for this, so it is applied to the page.
-        items = [
-            item
-            for item in items
-            if not item.Genres or not item.ProviderIds or not (item.Overview or "").strip()
-        ]
+    aspects = normalise_aspects(item_kind, frozenset(missing or ()))
+    if aspects:
+        # Jellyfin has no music-library filter for this, so it is applied to the page --
+        # and skipping an item is honest here, because the batch reports it as skipped
+        # rather than quietly omitting it.
+        items = [item for item in items if is_missing(item_kind, aspects, _aspects_of(item))]
     return items
+
+
+def _aspects_of(dto: Any) -> SummaryLike:
+    """The slice of a Jellyfin DTO the missing-filter reads.
+
+    A small adapter rather than teaching the domain about ``BaseItemDto``: the filter is
+    shared with the library browse, which feeds it item *summaries*, and those are a
+    different type with the same four fields. Narrowing here keeps the comparison in one
+    place -- two implementations of "has no genres" is how the browse and the bulk editor
+    would come to disagree about which items need work.
+    """
+    return _DtoAspects(
+        genres=list(dto.Genres or []),
+        tags=list(dto.Tags or []),
+        has_provider_ids=bool(dto.ProviderIds),
+        has_overview=bool((dto.Overview or "").strip()),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _DtoAspects:
+    genres: list[str]
+    tags: list[str]
+    has_provider_ids: bool
+    has_overview: bool
 
 
 async def build_job(
@@ -188,7 +220,7 @@ async def build_job(
     search: str | None = None,
     ids: Iterable[str] | None = None,
     limit: int = 50,
-    missing_metadata: bool = False,
+    missing: Sequence[str] | None = None,
     overrides: dict[str, Mode] | None = None,
     tag_policy: TagPolicy | None = None,
     min_confidence: float = 0.0,
@@ -206,7 +238,7 @@ async def build_job(
         search=search,
         ids=ids,
         limit=limit,
-        missing_metadata=missing_metadata,
+        missing=missing,
     )
     job = BulkJob(
         job_id=uuid.uuid4().hex,
@@ -217,7 +249,7 @@ async def build_job(
             "parent_id": parent_id,
             "search": search,
             "limit": limit,
-            "missing_metadata": missing_metadata,
+            "missing": list(missing or ()),
             "min_confidence": min_confidence,
         },
     )

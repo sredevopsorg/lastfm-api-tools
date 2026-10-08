@@ -4,11 +4,12 @@
   "version": "0.0.3",
   "type": "module",
   "scripts": {
+    "build": "npm run typecheck && node --experimental-strip-types scripts/run-tests.mjs && vite build",
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "e2e": "playwright test",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "e2e": "playwright test"
+    "test": "tsc -p tsconfig.test.json --noEmit && node --experimental-strip-types scripts/run-tests.mjs",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.e2e.json --noEmit"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.7",
@@ -17,12 +18,13 @@
     "react-router-dom": "^7.1.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.49.1",
+    "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5",
-    "@playwright/test": "1.49.1"
+    "vite": "^6.0.5"
   },
   "packageManager": "pnpm@12.9.1"
 }

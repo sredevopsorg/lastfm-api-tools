@@ -1,0 +1,9 @@
+{
+  "//": "Typecheck the end-to-end specs. They have never been checked: `tsconfig.json` includes only `src`, and Playwright transpiles specs without typechecking them, so every spec in `e2e/` has been the only TypeScript in this app that nothing verifies. A typo in a locator or a wrong argument type would have failed at runtime in a suite that does not run in CI, which is the worst place to find out.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["e2e/**/*.ts"],
+  "exclude": []
+}
