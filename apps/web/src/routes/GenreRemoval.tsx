@@ -13,6 +13,7 @@ import {
   type SelectionKind,
 } from '../api/client'
 import { ErrorNote, Value } from '../components/ui'
+import { EMPTY_FACETS, SelectionFilters } from '../components/facet_controls'
 
 const KINDS: { value: SelectionKind; label: string }[] = [
   { value: 'artist', label: 'Artists' },
@@ -37,6 +38,7 @@ const EMPTY_FORM = {
   decompose: false,
   limit: 100,
   search: '',
+  facets: EMPTY_FACETS,
 }
 
 /**
@@ -89,6 +91,9 @@ export function GenreRemoval() {
         kind: form.kind,
         limit: form.limit,
         ...(form.search ? { search: form.search } : {}),
+        ...(form.facets.artistIds.length ? { artist_ids: form.facets.artistIds } : {}),
+        ...(form.facets.albumIds.length ? { album_ids: form.facets.albumIds } : {}),
+        ...(form.facets.patterns.length ? { exclude: form.facets.patterns } : {}),
       },
     }),
     [form],
@@ -290,6 +295,13 @@ export function GenreRemoval() {
             {diffing ? 'Reviewing…' : 'Review'}
           </button>
         </div>
+
+        <SelectionFilters
+          kind={form.kind}
+          values={form.facets}
+          onChange={(facets) => setForm({ ...form, facets })}
+          idPrefix="removal"
+        />
 
         <div className="row">
           {/* Off by default and labelled with its consequence. A packed value is

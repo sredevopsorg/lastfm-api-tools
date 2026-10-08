@@ -360,3 +360,44 @@ table.grid th { vertical-align: bottom; }
 }
 .conflict-box .badge { margin-left: 0; }
 .conflict-box li { margin: 0.35rem 0; }
+
+/* ------------------------------------------------------- facet filters */
+
+/* One picker per facet, wrapping rather than stretching: a picker with no results is short
+   and one with twenty is tall, and a row of equal-width columns would leave the exclusion
+   hint floating in a column of its own. */
+.facet-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  margin: 0.5rem 0;
+}
+
+.facet-picker { min-width: 15rem; max-width: 26rem; }
+
+/* The match list is bounded and scrolls, because an unbounded one would push the table
+   off the screen while the operator is still deciding what to search for. */
+.facet-results {
+  max-height: 12rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  margin-top: 0.35rem;
+  background: var(--bg);
+}
+.facet-results .plain li { padding: 0.1rem 0; }
+
+/* A pattern is not a deletion -- it is a rule -- so it is dashed rather than struck
+   through, which is what `.danger-chip` above means. */
+.chip.pattern-chip {
+  border-style: dashed;
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.facet-picker code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+}

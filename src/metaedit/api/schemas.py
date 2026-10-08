@@ -392,6 +392,14 @@ class BulkSummaryEvent(BaseModel):
     reverted: int | None
     failures: list[dict[str, Any]]
     batch_revert: str | None
+    # How many items the selection *dropped* on the way in -- by an exclusion pattern, in
+    # practice. Declared here because the response model silently discards an undeclared
+    # key, which is how `removing` went missing from the job list once already.
+    excluded: int | None = None
+    # Only present when the library had to be read to answer the selection. `truncated`
+    # means the read stopped at the cap, so fewer items were considered than exist.
+    scanned: int | None = None
+    truncated: bool | None = None
 
 
 class BulkErrorEvent(BaseModel):
@@ -408,6 +416,10 @@ class BulkJobSummary(BaseModel):
     skipped: int
     created_at: str
     applied: bool
+    # Zero for a job whose selection dropped nothing, which is most of them. A default
+    # rather than a required field so the list endpoint keeps describing jobs that were
+    # reviewed before this existed.
+    excluded: int = 0
 
 
 class RemovalJobSummary(BulkJobSummary):

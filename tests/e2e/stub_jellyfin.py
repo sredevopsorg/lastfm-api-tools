@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from typing import Any
 
@@ -65,6 +66,30 @@ WRITABLE_FIELDS = (
 
 API_KEY = os.environ.get("STUB_API_KEY", "stub-admin-key")
 
+# Item id shapes Jellyfin will parse as a filter value. Duplicated from the app rather than
+# imported, for the same reason the writable field list is: a stub that shares the app's
+# own definition agrees with it by construction, so a bug in the definition is invisible.
+_FACET_ID_PATTERN = re.compile(
+    r"\A(?:[0-9a-fA-F]{32}|"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\Z"
+)
+
+
+def _credited_artist_ids(row: dict[str, Any]) -> set[str]:
+    """Every artist id an item is credited to, from whichever spelling it carries.
+
+    Live-verified that `ArtistIds` and `AlbumArtistIds` return the *same* counts for the
+    same id (21 songs for ABBA either way), so one reader for both lists is faithful rather
+    than a shortcut. `ContributingArtistIds` returns 0 and is deliberately absent.
+    """
+    ids: set[str] = set()
+    for field_name in ("ArtistItems", "AlbumArtists"):
+        for pair in row.get(field_name) or []:
+            if isinstance(pair, dict) and pair.get("Id"):
+                ids.add(str(pair["Id"]))
+    return ids
+
+
 # Enough extra artists that the default page size (50) leaves a second, partial page. A
 # library smaller than one page cannot exercise paging at all, and a library of exactly
 # one page cannot exercise a *partial* last page, which is where the paging arithmetic in
@@ -99,12 +124,25 @@ def _artist(
     return item
 
 
-def _album(item_id: str, name: str, album_artist: str, mbid: str | None) -> dict[str, Any]:
+def _album(
+    item_id: str,
+    name: str,
+    album_artist: str,
+    mbid: str | None,
+    artist_id: str | None = None,
+    genres: list[str] | None = None,
+) -> dict[str, Any]:
     """An album as the server sends it: scalar `AlbumArtist`, no `AlbumArtists` array.
 
     Reproducing that spelling matters -- reading only the array left an album with no
     artist, which made the Last.fm lookup impossible to derive.
+
+    ``AlbumArtists``/``ArtistItems`` are alongside it, not instead of it, because that is
+    what the live server sends when `fields=` asks and it is what `ArtistIds` matches
+    against. An album with no credit pair is unfilterable by artist, and the filter would
+    look broken while behaving correctly.
     """
+    credits = [{"Name": album_artist, "Id": artist_id}] if artist_id else []
     return {
         "Id": item_id,
         "Type": "MusicAlbum",
@@ -113,7 +151,9 @@ def _album(item_id: str, name: str, album_artist: str, mbid: str | None) -> dict
         "SourceType": "Library",
         "AlbumArtist": album_artist,
         "Artists": [album_artist],
-        "Genres": [],
+        "AlbumArtists": credits,
+        "ArtistItems": credits,
+        "Genres": genres or [],
         "Tags": ["keep-me"],
         "Studios": [],
         "ProductionLocations": [],
@@ -126,43 +166,165 @@ def _album(item_id: str, name: str, album_artist: str, mbid: str | None) -> dict
     }
 
 
-LIBRARY: dict[str, dict[str, Any]] = {
-    "alb-1": _album("alb-1", "OK Computer", "Radiohead", "b1392450-e666-3926-a536-22c65f834433"),
-    "alb-2": _album("alb-2", "Dummy", "Portishead", None),
+def _song(
+    item_id: str,
+    name: str,
+    album: str,
+    album_id: str,
+    artist: str,
+    artist_id: str,
+    genres: list[str] | None = None,
+) -> dict[str, Any]:
+    """A song, which is the only media type both facets can narrow.
+
+    `Album`/`AlbumId` are what an exclusion pattern reads and what `AlbumIds` matches; the
+    credit pair is what `ArtistIds` matches. `AlbumArtists` and `ArtistItems` deliberately
+    differ here for the compilation case -- `Various Artists` is the album artist and the
+    track artist is someone else -- because that divergence is the whole reason the filter
+    reads both lists.
+    """
+    return {
+        "Id": item_id,
+        "Type": "Audio",
+        "Name": name,
+        "Etag": f"etag-{item_id}-1",
+        "SourceType": "Library",
+        "Album": album,
+        "AlbumId": album_id,
+        "AlbumArtist": artist,
+        "Artists": [artist],
+        "AlbumArtists": [{"Name": artist, "Id": artist_id}],
+        "ArtistItems": [{"Name": artist, "Id": artist_id}],
+        "Genres": genres or [],
+        "Tags": ["keep-me"],
+        "Studios": [],
+        "ProductionLocations": [],
+        "ProviderIds": {},
+        "ExternalUrls": [],
+        "LockedFields": [],
+        "People": [],
+        "Overview": "",
+        "LockData": False,
+    }
+
+
+# One id space, and it is the 32-hex one.
+#
+# Two things have to agree and a fixture can easily let them differ: the item's `Id`, which
+# is the key `GET /Items?ids=` resolves, and the id inside its credit pairs, which is what
+# `ArtistIds` matches. On a real server they are the same string. They were not here at
+# first -- the keys were `art-1` and the credit pairs carried a hex id -- so the facet picker
+# stored an id that resolved to nothing and every chip rendered as a raw id slice while the
+# filter itself worked. A fixture that lets the two differ cannot catch that class of bug;
+# it manufactures it.
+
+
+# The item's own `Id` and the id a filter is given are the same string, as they are on a
+# real server, and that is not a detail -- it is the difference between a fixture that
+# catches a broken picker and one that manufactures the bug.
+#
+# It has to be the 32-hex shape, because Jellyfin parses only that (or a dashed GUID) as a
+# filter value; a filter naming `art-1` is discarded *in full* and returns the whole library.
+# So the ids are hex, and the readable names are library *keys* only -- which is what keeps
+# the existing specs, which address items as `art-1` through the stub's own `/__writes`
+# endpoint, working unchanged.
+def _hex_id(prefix: str, index: int) -> str:
+    """A 32-hex id that is distinct per index.
+
+    Zero-padded to a fixed width, because the obvious `prefix * 31 + str(index)` produces a
+    33-character id at index 10 -- caught by asserting every fixture id matches the shape
+    Jellyfin parses, which is the same assertion the app's own guard makes.
+    """
+    return prefix * (32 - len(str(index))) + str(index)
+
+
+ARTIST_IDS = {
+    "art-1": _hex_id("a", 1),
+    "art-2": _hex_id("a", 2),
+    "art-3": _hex_id("a", 3),
+}
+ALBUM_IDS = {
+    "alb-1": _hex_id("b", 1),
+    "alb-2": _hex_id("b", 2),
+    "alb-3": _hex_id("b", 3),
+}
+
+# Keyed by the *server id*, because that is what every Jellyfin endpoint addresses:
+# `GET /Items?ids=`, `GET /Items/{id}`, `POST /Items/{id}`. Keeping the readable names as
+# keys instead made `LIBRARY.get(hex_id)` return None, so the editor 404'd for every item
+# the browse screen linked to -- a fixture that worked for the list endpoints and not the
+# single-item ones, which is the half of the API nothing would have exercised.
+_BY_KEY: dict[str, dict[str, Any]] = {
+    "alb-1": _album(
+        ALBUM_IDS["alb-1"],
+        "OK Computer",
+        "Radiohead",
+        "b1392450-e666-3926-a536-22c65f834433",
+        ARTIST_IDS["art-1"],
+    ),
+    "alb-2": _album(ALBUM_IDS["alb-2"], "Dummy", "Portishead", None, ARTIST_IDS["art-2"]),
+    "alb-3": _album(ALBUM_IDS["alb-3"], "Live at Leeds", "Radiohead", None, ARTIST_IDS["art-1"]),
     "art-1": _artist(
-        "art-1",
+        ARTIST_IDS["art-1"],
         "Radiohead",
         "a74b1b7f-71a5-4011-9441-d0b5e4122711",
         genres=["Rock"],
         overview="",
     ),
     "art-2": _artist(
-        "art-2",
+        ARTIST_IDS["art-2"],
         "Portishead",
         "8f6bd1e4-fbe1-4f50-aa9b-94c450ec0f11",
         genres=[],
     ),
-    "art-3": _artist("art-3", "Nobody At All", None),
+    "art-3": _artist(ARTIST_IDS["art-3"], "Nobody At All", None),
 }
+
+# Songs, so `AlbumIds` has something to narrow -- it is the one facet that applies to songs
+# only. Two on one album and one on another, which is what makes union-within-a-parameter
+# and intersection-across-parameters distinguishable: with a single song per album a filter
+# that ignored either one would still return a plausible number.
+for index, (name, album_key, artist_key) in enumerate(
+    [
+        ("Airbag", "alb-1", "art-1"),
+        ("Paranoid Android", "alb-1", "art-1"),
+        ("Roads", "alb-2", "art-2"),
+    ],
+    start=1,
+):
+    _BY_KEY[f"song-{index}"] = _song(
+        _hex_id("c", index),
+        name,
+        _BY_KEY[album_key]["Name"],
+        ALBUM_IDS[album_key],
+        _BY_KEY[artist_key]["Name"],
+        ARTIST_IDS[artist_key],
+        genres=["Rock"] if index == 1 else None,
+    )
 
 # A page's worth of extra artists, so paging has a second page and an operator can select
 # across the boundary. Named so their order by name is obvious, and every third one has no
 # genres so the missing filter has something to find.
 for index in range(1, PAGE_FILLER_COUNT + 1):
     item_id = f"art-fill-{index:03d}"
-    LIBRARY[item_id] = _artist(
-        item_id,
+    _BY_KEY[item_id] = _artist(
+        _hex_id("d", index),
         f"Filler Artist {index:03d}",
         f"mbid-filler-{index:03d}",
         genres=[] if index % 3 == 0 else ["Ambient"],
         overview=f"An overview for filler {index}." if index % 2 == 0 else "",
     )
 
-# Two rows with the SAME name. `ORDER BY name` cannot separate them, which is the
-# condition that broke archive paging on the live data -- and any ordering the app applies
-# to a paged list has to survive it.
-LIBRARY["art-dupe-a"] = _artist("art-dupe-a", "Twin Peaks", "mbid-dupe-a", genres=["Shoegaze"])
-LIBRARY["art-dupe-b"] = _artist("art-dupe-b", "Twin Peaks", "mbid-dupe-b", genres=["Krautrock"])
+# Two rows with the SAME name. `ORDER BY name` cannot separate them, which is the condition
+# that broke archive paging on the live data -- and any ordering the app applies to a paged
+# list has to survive it.
+_BY_KEY["art-dupe-a"] = _artist(_hex_id("e", 1), "Twin Peaks", "mbid-dupe-a", genres=["Shoegaze"])
+_BY_KEY["art-dupe-b"] = _artist(_hex_id("e", 2), "Twin Peaks", "mbid-dupe-b", genres=["Krautrock"])
+
+# The library as every endpoint sees it, plus the readable names kept only for the test
+# hooks and the seed's own cross-references.
+LIBRARY: dict[str, dict[str, Any]] = {str(row["Id"]): row for row in _BY_KEY.values()}
+LIBRARY_KEYS: dict[str, str] = {key: str(row["Id"]) for key, row in _BY_KEY.items()}
 
 WRITES: list[dict[str, Any]] = []
 ETAG_COUNTER = {"n": 1}
@@ -205,8 +367,20 @@ async def health() -> dict[str, str]:
 
 @app.get("/__writes")
 async def writes() -> dict[str, Any]:
-    """What the app sent, so a test can assert on the exact body."""
-    return {"writes": WRITES, "items": LIBRARY}
+    """What the app sent, so a test can assert on the exact body.
+
+    ``items`` is keyed by server id -- it mirrors the library -- and ``ids`` is the readable
+    key for each of them. Both are exposed because a spec needs each for a different job:
+    asserting on a write needs the id the app actually sent, and starting a test needs to
+    say *which* item it means without hard-coding a hex string. Keying the library by its
+    readable keys instead was the earlier shape, and it silently made `art-1` a value that
+    no facet filter would accept.
+    """
+    return {
+        "writes": WRITES,
+        "items": LIBRARY,
+        "ids": LIBRARY_KEYS,
+    }
 
 
 @app.post("/__reset")
@@ -374,6 +548,29 @@ async def items(request: Request) -> dict[str, Any]:
             for row in found
             if any(str(value).casefold() == wanted.casefold() for value in (row.get(field) or []))
         ]
+
+    # `ArtistIds`/`AlbumIds`: union within a parameter, intersect across them, and -- the
+    # part worth modelling -- an unparseable list is discarded *in full*. Live-verified:
+    # `ArtistIds=abc`, a pipe-joined pair and a 40-character string each returned the entire
+    # library, while a junk entry alongside a valid one is dropped individually. A stub that
+    # quietly ignored a bad list would make the app's id validation look like needless
+    # defensiveness, and the app would be free to remove it.
+    for name, reader in (
+        ("ArtistIds", _credited_artist_ids),
+        (
+            "AlbumIds",
+            lambda row: {str(row["AlbumId"])} if row.get("AlbumId") else set(),
+        ),
+    ):
+        raw = request.query_params.get(name)
+        if raw is None:
+            continue
+        wanted_ids = {
+            entry.strip() for entry in raw.split(",") if _FACET_ID_PATTERN.match(entry.strip())
+        }
+        if not wanted_ids:
+            continue
+        found = [row for row in found if reader(row) & wanted_ids]
 
     # Sort BEFORE the window. Sorting after slicing would sort one page -- which is the
     # mistake the frontend made by sorting in the browser, and a stub that did it here

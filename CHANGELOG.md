@@ -9,7 +9,63 @@ The version is `0.x`, which by SemVer means the interface may still change betwe
 releases. The metadata *contract* is the exception: what is written to Jellyfin is
 specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable.
 
-## [Unreleased]
+## [0.2.0] - 2026-10-08
+
+### Added
+
+**Filter albums by artist, and songs by artist and/or album.** The library screen, the bulk
+form and the genre-removal form now offer the same two facets, and they are Jellyfin's own
+parameters — so `total` is the filtered count, paging is over the filtered set, and nothing
+is scanned. Verified against Jellyfin 12.2.0: `ArtistIds=<ABBA>` returns 2 of 502 albums and
+21 of 5,442 songs, and `ArtistIds` together with `AlbumIds` narrows both ways at once.
+
+Ids must be 32 hex characters or a dashed GUID, and **anything else is refused with a 422**.
+That guard is not defensive politeness: Jellyfin discards an id list it cannot parse *in
+full* and answers with the unfiltered library — measured, `ArtistIds=abc` returns all 502
+albums where a valid id returns 2 — so a single typo would turn "narrow to these three
+artists" into "the whole library", on a selection that feeds a write. The error says so.
+
+**Exclusion patterns.** A pattern is a case-insensitive glob (`*`, `?`) matched against the
+item's **name**, its **album** and its **album artist** — all three, because `Various
+Artists` is a compilation marker that appears in the album artist and in no track or album
+name, so a matcher reading only the name would leave every compilation in the selection.
+Matching is literal: `live` hides exactly `live`, and `*live*` is what hides a substring.
+Glob rather than regex because the input is typed by hand into a box, and `fnmatch` escapes
+everything but the wildcards, so a pathological pattern cannot become a
+catastrophic-backtracking regex pointed at your own server.
+
+Jellyfin has no parameter for this, so it costs a read — and the response says what the read
+covered: `scanned`, `matched`, `excluded`, `truncated`, `limit`. `excluded` and `matched` are
+disjoint, and a truncated scan is reported as a lower bound rather than presented as a total.
+
+**Pagination above the table, as well as below it.** A long page is read from the middle, and
+an operator who has scrolled to the last row should not have to travel back up to move on.
+The two controls carry distinct accessible names, so they are not ambiguous to a screen
+reader — or to a test.
+
+### Changed
+
+**A filtered batch or removal now fills its limit.** `POST /api/bulk/diff` and
+`POST /api/bulk/remove-genre/diff` accept the same three narrowings, and a selection that
+drops items to a pattern or an aspect filter keeps reading until it has `limit` items that
+pass, rather than returning however many of the first `limit` survived. Before, "limit 25"
+with `missing=genres` could legitimately return four items with nothing to explain the
+difference, which reads as "there is nothing else to do". The job summary carries `excluded`
+(and `scanned`/`truncated` when the library had to be read), so a short result is explained
+rather than merely short.
+
+`POST /api/harvest` accepts the same three narrowings too, so one selection means one thing
+across the app.
+
+### Notes
+
+- Exclusion patterns narrow a **view** or a **selection**. They never delete anything: a
+  pattern that hides an album from the browse screen does not remove a genre from it.
+  Deleting is the separate, reviewed, revertible *Remove genre* tool.
+- Changing any filter clears the current selection, because that selection feeds a write and
+  carrying it into a different result set would attach edits to items you had filtered away.
+- See [ADR 0017](docs/adr/0017-facet-filters-and-exclusion-patterns.md) for the reasoning,
+  including the live measurements behind the id guard.
 
 ## [0.1.0] - 2026-10-08
 
@@ -524,7 +580,8 @@ recorded because the *class* of mistake is more instructive than the instance.
 - The Last.fm Terms of Service cap stored Last.fm Data at 100 MB. Usage is measured and
   shown; nothing is deleted automatically, and reaching the cap refuses new writes instead.
 
-[Unreleased]: https://github.com/sredevopsorg/metaedit/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sredevopsorg/metaedit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sredevopsorg/metaedit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.1.0
 [0.0.5]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.5
 [0.0.4]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.4

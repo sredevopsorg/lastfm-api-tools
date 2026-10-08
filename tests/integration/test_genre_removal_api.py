@@ -16,6 +16,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from tests.conftest import requires_postgres
+from tests.support.jellyfin import apply_facet_filters
 
 from metaedit.adapters.jellyfin.client import JellyfinClient
 from metaedit.config import Settings, get_settings
@@ -119,6 +120,10 @@ def _handler(request: httpx.Request) -> httpx.Response:
         if wanted_type:
             found = [row for row in found if row.get("Type") == wanted_type]
         found = _filter_by_genre(found, params)
+        # `ArtistIds`/`AlbumIds`, with the trap: an unparseable list is discarded in full
+        # and the server answers with the unfiltered set. Modelled so the app's id
+        # validation is tested against the behaviour it exists for.
+        found = apply_facet_filters(params, found)
         term = (params.get("searchTerm") or "").casefold()
         if term:
             found = [row for row in found if term in str(row.get("Name", "")).casefold()]
@@ -582,3 +587,97 @@ def test_the_job_list_is_separate_from_the_bulk_jobs(client: TestClient) -> None
     assert removals["count"] == 1
     assert removals["jobs"][0]["removing"] == "Rock"
     assert diffs["count"] == 0
+
+
+# --------------------------------------------------- the shared selection narrowings
+#
+# A removal selects by *having* a genre, which Jellyfin can express; the artist/album facets
+# and the exclusion patterns are the same three narrowings a browse query and a batch accept.
+# Worth more here than anywhere else: "remove this genre from every album" is rarely meant to
+# include the compilations.
+
+
+def test_an_exclusion_pattern_keeps_an_item_out(client: TestClient) -> None:
+    """`Ska` selects Alpha; a pattern naming Alpha must remove it from the batch.
+
+    The dangerous direction is the other one: a pattern that *fails* to exclude means the
+    write lands on an item the operator had filtered out on screen.
+    """
+    events = _diff(client, {"genre": "Rock", "selection": {"exclude": ["alpha"]}})
+    items = [event for event in events if event["type"] == "item"]
+    assert items == [], "Alpha is the only carrier of 'Rock' and it was excluded"
+
+    summary = next(event for event in events if event["type"] == "summary")
+    assert summary["excluded"] == 1
+    assert summary["scanned"] == 1, "the item was read to find that out"
+    assert summary["truncated"] is False
+
+
+def test_an_exclusion_pattern_does_not_consume_the_limit(client: TestClient) -> None:
+    """The reason the selection over-fetches rather than filtering one page.
+
+    With `limit: 1`, filtering a full page and *then* dropping excluded items would return
+    an empty batch while a perfectly good second item sat in the library -- a batch that
+    looks like "nothing matched" rather than "your limit was spent on something excluded".
+    """
+    events = _diff(
+        client,
+        {"genre": "Ska", "selection": {"limit": 1, "exclude": ["alpha"]}},
+    )
+    items = [event for event in events if event["type"] == "item"]
+
+    # Alpha is the only artist carrying Ska, so an over-fetching selection correctly
+    # returns nothing -- but it must have *looked* past the limit to establish that.
+    assert items == []
+    summary = next(event for event in events if event["type"] == "summary")
+    assert summary["excluded"] == 1
+
+
+def test_the_limit_is_still_filled_after_an_exclusion(client: TestClient) -> None:
+    """Both artists carry a genre, so excluding one still yields a full batch of one."""
+    events = _diff(
+        client,
+        {"genre": "Ska", "selection": {"limit": 2, "exclude": ["beta"]}},
+    )
+    items = [event for event in events if event["type"] == "item"]
+    assert [event["name"] for event in items] == ["Alpha"]
+
+
+@pytest.mark.parametrize(
+    ("selection", "reason"),
+    [
+        ({"artist_ids": ["aaaaaaaa-0000-0000-0000-000000000001"]}, "does not narrow"),
+        ({"artist_ids": ["abc"]}, "unfiltered library"),
+        ({"album_ids": ["0" * 40]}, "unfiltered library"),
+    ],
+)
+def test_an_unusable_facet_is_refused(
+    client: TestClient, selection: dict[str, Any], reason: str
+) -> None:
+    """`artist_ids` on an artist selection, and an id Jellyfin cannot parse.
+
+    The first returns zero on the server, so it reads as "nothing carries this genre"
+    rather than as a filter that cannot work. The second is the dangerous one: Jellyfin
+    discards an unparseable list in full and answers with the *unfiltered* library, which
+    on this screen would mean removing a genre from everything.
+    """
+    response = client.post(
+        "/api/bulk/remove-genre/diff",
+        json={"genre": "Rock", "selection": selection},
+    )
+
+    assert response.status_code == 422, response.text
+    assert reason in response.json()["error"]["message"]
+
+
+def test_the_narrowings_are_recorded_on_the_job(client: TestClient) -> None:
+    """`GET /bulk/remove-genre/jobs` must say what the batch was actually about.
+
+    An operator deciding whether to apply gets a different picture from "Ska on 2 items"
+    than from "Ska on 2 items, except the ones matching *alpha*".
+    """
+    _diff(client, {"genre": "Ska", "selection": {"exclude": ["beta"]}})
+    jobs = client.get("/api/bulk/remove-genre/jobs").json()["jobs"]
+
+    assert jobs[-1]["removing"] == "Ska"
+    assert jobs[-1]["excluded"] == 0, "nothing was excluded; Beta never carried Ska"

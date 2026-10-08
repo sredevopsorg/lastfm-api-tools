@@ -20,6 +20,21 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 
 const STUB = process.env.E2E_STUB_URL ?? 'http://127.0.0.1:8096'
 
+/**
+ * The server-side id of a fixture item, by the readable name the stub knows it by.
+ *
+ * Ids are 32-hex now rather than `art-1`, because that is the only shape Jellyfin accepts
+ * as a facet filter value -- so the specs ask the stub for the id instead of hard-coding
+ * one, and a fixture rename does not break them.
+ */
+async function idOf(request: APIRequestContext, key: string): Promise<string> {
+  const response = await request.get(`${STUB}/__writes`)
+  const body = (await response.json()) as { ids: Record<string, string> }
+  const found = body.ids[key]
+  if (!found) throw new Error(`the stub library has no item named ${key}`)
+  return found
+}
+
 /** Every write the stub observed, so a test can assert on the exact body sent. */
 async function writes(request: APIRequestContext) {
   const response = await request.get(`${STUB}/__writes`)
@@ -30,15 +45,25 @@ async function writes(request: APIRequestContext) {
 }
 
 /** One item from the stub library. Throws rather than returning undefined: a test that
- * silently compared against a missing item would pass for the wrong reason. */
+ * silently compared against a missing item would pass for the wrong reason.
+ *
+ * Addressed by the readable *key*, then resolved through the id the server uses -- the same
+ * two-step a spec takes to reach an item in the UI. Passing a server id here worked while
+ * the fixture was keyed by readable ids and silently stopped working when they became hex,
+ * which is exactly the confusion this indirection removes.
+ */
 async function item(
   request: APIRequestContext,
-  itemId: string,
+  key: string,
 ): Promise<Record<string, unknown>> {
   const response = await request.get(`${STUB}/__writes`)
-  const body = (await response.json()) as { items: Record<string, Record<string, unknown>> }
-  const found = body.items[itemId]
-  if (!found) throw new Error(`the stub library has no item ${itemId}`)
+  const body = (await response.json()) as {
+    items: Record<string, Record<string, unknown>>
+    ids: Record<string, string>
+  }
+  const id = body.ids[key]
+  const found = id ? body.items[id] : undefined
+  if (!found) throw new Error(`the stub library has no item named ${key}`)
   return found
 }
 
@@ -81,7 +106,7 @@ test('a comma line is reported with both readings instead of being split', async
   await expect(page.locator('.conflict-box')).toContainText('2 entr')
 })
 
-test('a blacklist entry changes which genres the editor proposes', async ({ page }) => {
+test('a blacklist entry changes which genres the editor proposes', async ({ page, request }) => {
   // The end-to-end point of the feature: the setting reaches the mapping layer.
   //
   // The stub's Last.fm artist offers `alternative rock`, `rock`, `art rock` and
@@ -95,7 +120,7 @@ test('a blacklist entry changes which genres the editor proposes', async ({ page
 
   // art-1 holds Genres ["Rock"], and the diff pre-selects nothing until a candidate is
   // chosen -- the editor picks the best one itself, so the diff renders on load.
-  await page.goto('/edit/art-1')
+  await page.goto(`/edit/${await idOf(request, 'art-1')}`)
   await expect(page.getByRole('heading', { name: 'Radiohead' })).toBeVisible()
 
   const genres = page.locator('.change-row', { hasText: 'Genres' }).first()
@@ -176,7 +201,8 @@ test('a removal writes the whole item, not just the genre field', async ({ page,
 
   await expect(page.getByRole('heading', { name: 'Applied' })).toBeVisible()
 
-  const sent = (await writes(request)).filter((write) => write.item_id === 'art-1')
+  const target = await idOf(request, 'art-1')
+  const sent = (await writes(request)).filter((write) => write.item_id === target)
   expect(sent).toHaveLength(1)
 
   const body = sent[0]!.body
@@ -229,7 +255,7 @@ test('a removal can be reverted as one batch', async ({ page, request }) => {
 
   const sent = await writes(request)
   const restored = sent.at(-1)
-  expect(restored?.item_id).toBe('art-1')
+  expect(restored?.item_id).toBe(await idOf(request, 'art-1'))
   expect(restored?.body.Genres).toEqual(['Rock'])
 })
 

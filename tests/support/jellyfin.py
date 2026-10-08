@@ -30,6 +30,7 @@ a quirk gets the real behaviour, not a convenient one.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -136,6 +137,67 @@ def album(
         "Overview": overview,
         "LockData": False,
     }
+
+
+# Item id shapes Jellyfin will parse. Duplicated from `domain.identifiers` on purpose: a
+# mock that imported the app's own validator would agree with it by construction, so a bug
+# in the validator would be invisible here -- which is the exact failure this whole module
+# exists to correct.
+_FACET_ID_PATTERN = re.compile(
+    r"\A(?:[0-9a-fA-F]{32}|"
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\Z"
+)
+
+
+def _credited_artist_ids(row: dict[str, Any]) -> set[str]:
+    """Every artist id an item is credited to, from whichever spelling it carries.
+
+    Live-verified on 12.2.0: `ArtistIds` and `AlbumArtistIds` return the *same* counts for
+    the same id (21 songs for ABBA either way), so one field reading both lists is faithful
+    rather than a shortcut. `ContributingArtistIds` returns 0 and is deliberately absent.
+    """
+    ids: set[str] = set()
+    for field_name in ("ArtistItems", "AlbumArtists"):
+        for pair in row.get(field_name) or []:
+            if isinstance(pair, dict) and pair.get("Id"):
+                ids.add(str(pair["Id"]))
+    return ids
+
+
+def apply_facet_filters(params: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Jellyfin's ``ArtistIds``/``AlbumIds`` semantics, including the trap.
+
+    Three behaviours, each measured on a live 12.2.0 server rather than inferred:
+
+    * **Union within a parameter.** ``ArtistIds=ABBA,a-ha`` returns 3 albums where ABBA
+      alone returns 2 and a-ha alone returns 1.
+    * **Intersection across parameters.** ``ArtistIds=ABBA&AlbumIds=Gold`` returns 19,
+      narrowing both ways at once.
+    * **An unparseable list is discarded in full.** ``ArtistIds=abc``,
+      ``ArtistIds=<32 hex>|<32 hex>`` and ``ArtistIds=<40 hex>`` all returned the *entire*
+      library -- 502 albums, 5,442 songs -- while a junk entry *alongside* a valid one is
+      dropped individually (``ArtistIds=<junk>,<ABBA>`` returns ABBA's 2). So an ignored
+      parameter and an applied one must not look alike here: that trap is why the app
+      validates ids before sending them, and a mock that quietly ignored a bad list would
+      make the guard look unnecessary.
+    """
+    found = list(rows)
+    for name, reader in (
+        ("ArtistIds", _credited_artist_ids),
+        ("AlbumIds", lambda row: {str(row["AlbumId"])} if row.get("AlbumId") else set()),
+    ):
+        raw = params.get(name)
+        if raw is None:
+            continue
+        wanted = {
+            entry.strip() for entry in str(raw).split(",") if _FACET_ID_PATTERN.match(entry.strip())
+        }
+        if not wanted:
+            # The whole parameter is ignored. Not a no-op that narrows to nothing: the
+            # result is *wider* than the caller asked for, by design of the server.
+            continue
+        found = [row for row in found if reader(row) & wanted]
+    return found
 
 
 class FakeJellyfin:
@@ -330,6 +392,7 @@ def _items(fake: FakeJellyfin, request: httpx.Request, path: str) -> httpx.Respo
     term = (params.get("searchTerm") or "").lower()
     if term:
         rows = [row for row in rows if term in str(row.get("Name", "")).lower()]
+    rows = apply_facet_filters(params, rows)
     # Unlike a single-item read, the list form is happy without a user.
     return _paged(request, rows)
 

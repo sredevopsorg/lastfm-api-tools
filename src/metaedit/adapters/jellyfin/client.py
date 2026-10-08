@@ -55,7 +55,7 @@ AUTH_SCHEME = "MediaBrowser"
 CLIENT_NAME = "metaedit"
 DEVICE_NAME = "metaedit"
 DEVICE_ID = "metaedit-desktop"
-CLIENT_VERSION = "0.1.0"
+CLIENT_VERSION = "0.2.0"
 
 # Fields requested explicitly so one batched call hydrates the full write payload.
 #

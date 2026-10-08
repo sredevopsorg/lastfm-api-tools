@@ -75,3 +75,60 @@ def test_name_and_sort_name_are_different_questions() -> None:
     are in the map rather than one being treated as a duplicate.
     """
     assert SORT_BY_JELLYFIN_KEY["name"] != SORT_BY_JELLYFIN_KEY["sort_name"]
+
+
+# ------------------------------------------------------------------ facet filters
+
+
+def test_artist_ids_narrow_albums_and_songs() -> None:
+    """Live-verified: `ArtistIds=ABBA` returns 2 of 502 albums and 21 of 5,442 songs."""
+    from metaedit.domain.browse import facet_filters
+
+    ids = ["bbc3e56260455521dfda7effa56e14f2"]
+    assert facet_filters("album", artist_ids=ids) == {"ArtistIds": ids[0]}
+    assert facet_filters("song", artist_ids=ids) == {"ArtistIds": ids[0]}
+
+
+def test_ids_are_joined_into_one_comma_separated_value() -> None:
+    """One spelling rather than a repeated parameter: Jellyfin unions both, so sending it
+    twice would be two ways to express one thing, and one of them to get wrong."""
+    from metaedit.domain.browse import facet_filters
+
+    filters = facet_filters("song", artist_ids=["a" * 32, "b" * 32])
+    assert filters == {"ArtistIds": f"{'a' * 32},{'b' * 32}"}
+
+
+def test_album_ids_apply_to_songs_only() -> None:
+    from metaedit.domain.browse import facet_filters
+
+    assert facet_filters("song", album_ids=["a" * 32]) == {"AlbumIds": "a" * 32}
+
+
+@pytest.mark.parametrize(
+    ("kind", "kwargs"),
+    [
+        ("artist", {"artist_ids": ["a" * 32]}),
+        ("artist", {"album_ids": ["a" * 32]}),
+        ("album", {"album_ids": ["a" * 32]}),
+    ],
+)
+def test_a_facet_that_cannot_apply_is_refused_not_answered_with_zero(
+    kind: str, kwargs: dict[str, list[str]]
+) -> None:
+    """Jellyfin *applies* these and returns zero — measured: `ArtistIds` on
+    `IncludeItemTypes=MusicArtist` returns 0 of 639, and `AlbumIds` on a music album does
+    the same. An empty table that looks like missing data is the failure this refusal
+    prevents."""
+    from metaedit.domain.browse import facet_filters
+    from metaedit.domain.errors import ValidationError
+
+    with pytest.raises(ValidationError) as caught:
+        facet_filters(kind, **kwargs)
+    assert f"does not narrow {kind}s" in caught.value.message
+
+
+def test_no_facets_means_no_parameters() -> None:
+    from metaedit.domain.browse import facet_filters
+
+    assert facet_filters("song") == {}
+    assert facet_filters("artist") == {}

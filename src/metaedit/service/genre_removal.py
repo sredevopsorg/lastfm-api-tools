@@ -50,6 +50,7 @@ from metaedit.domain.snapshot import NormalizedItem, from_dto
 from metaedit.logging import get_logger
 from metaedit.service.bulk import MAX_BATCH_ITEMS, BulkItem
 from metaedit.service.planning import item_kind_for
+from metaedit.service.selection import Selection, SelectionOutcome
 
 log = get_logger(__name__)
 
@@ -229,6 +230,21 @@ class RemovalSelection:
     target: str = ""
     fields: tuple[str, ...] = ("Genres",)
     decompose: bool = False
+    # The same narrowing a browse query and a batch accept, so one concept means one thing
+    # across the app. Excluding is worth more here than anywhere else: "remove this genre
+    # from every album" is rarely meant to include the compilations.
+    artist_ids: tuple[str, ...] = ()
+    album_ids: tuple[str, ...] = ()
+    exclude: tuple[str, ...] = ()
+
+    def filter_for(self) -> Selection:
+        """The shared interpretation of the three narrowings, validated on the way in."""
+        return Selection.build(
+            kind=self.kind,
+            artist_ids=self.artist_ids,
+            album_ids=self.album_ids,
+            exclude=self.exclude,
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -239,6 +255,9 @@ class RemovalSelection:
             "target": self.target,
             "fields": list(self.fields),
             "decompose": self.decompose,
+            "artist_ids": list(self.artist_ids),
+            "album_ids": list(self.album_ids),
+            "exclude": list(self.exclude),
         }
 
 
@@ -259,6 +278,9 @@ class RemovalJob:
     items: list[BulkItem] = field(default_factory=list)
     outcomes: dict[str, list[RemovalOutcome]] = field(default_factory=dict)
     applied: bool = False
+    # What the selection read, and what it cost -- so a run narrowed by an exclusion
+    # pattern can say how many items the pattern dropped rather than just coming back short.
+    report: SelectionOutcome | None = None
 
     @property
     def applicable_items(self) -> list[BulkItem]:
@@ -282,7 +304,7 @@ class RemovalJob:
         return found
 
     def summary(self) -> dict[str, Any]:
-        return {
+        summary: dict[str, Any] = {
             "job_id": self.job_id,
             "batch_id": self.batch_id,
             "items": len(self.items),
@@ -291,7 +313,13 @@ class RemovalJob:
             "created_at": self.created_at.isoformat(),
             "applied": self.applied,
             "removing": self.requested.get("target"),
+            "excluded": self.report.excluded if self.report is not None else 0,
         }
+        if self.report is not None and self.report.scanned is not None:
+            # Present only when the library was actually read; see BulkJob.summary.
+            summary["scanned"] = self.report.scanned
+            summary["truncated"] = self.report.truncated
+        return summary
 
 
 class RemovalJobRegistry:
@@ -337,8 +365,8 @@ async def find_items(
     client: JellyfinClient,
     *,
     selection: RemovalSelection,
-) -> list[Any]:
-    """The items carrying the target genre.
+) -> SelectionOutcome:
+    """The items carrying the target genre, and what finding them cost.
 
     Uses Jellyfin's own ``Genres``/``Tags`` query parameter, which is an exact,
     case-insensitive, server-side filter -- verified live: ``Genres=alternative rock``
@@ -348,21 +376,32 @@ async def find_items(
     That is the opposite of the browse ``missing=genres`` filter, which has to read items
     because Jellyfin cannot express "has no genres". Worth stating because the two look
     similar and only one is free.
+
+    The artist/album facets ride alongside that filter, which Jellyfin intersects for free.
+    An exclusion pattern cannot, so it is applied to each item as it arrives and *counted*:
+    an item dropped by a pattern must not consume the limit, or "25 items" would come back
+    as four with nothing to explain the difference.
     """
     if selection.limit > MAX_BATCH_ITEMS:
         raise ValidationError(
             f"limit {selection.limit} exceeds the {MAX_BATCH_ITEMS} item batch cap; "
             "narrow the query or raise the cap deliberately"
         )
+    wanted = selection.filter_for()
     if selection.decompose:
-        return await _scan_for_component(client, selection=selection)
+        return await _scan_for_component(client, selection=selection, wanted=wanted)
     explicit = [item_id for item_id in (selection.ids or []) if item_id]
     if explicit:
         # An explicit id list still has to be filtered: the caller may have selected
         # items that do not carry the genre, and writing a "removal" to them would be a
         # no-op that the report would have to explain.
         candidates = list(await client.items_by_ids(explicit[: selection.limit]))
-        return [dto for dto in candidates if _carries(dto, selection)]
+        kept = [dto for dto in candidates if wanted.carries(dto) and _carries(dto, selection)]
+        return SelectionOutcome(
+            items=kept,
+            scanned=len(candidates),
+            excluded=len(candidates) - len(kept),
+        )
 
     from metaedit.service.planning import ITEM_KIND_BY_QUERY
 
@@ -372,6 +411,7 @@ async def find_items(
             f"unknown selection kind {selection.kind!r}; expected one of "
             f"{sorted(ITEM_KIND_BY_QUERY)}"
         )
+    facets = wanted.jellyfin_params()
 
     # One query per field, then union. Jellyfin *ands* the query parameters it is given,
     # so sending `Genres=x&Tags=x` together would return only items carrying the value in
@@ -380,17 +420,19 @@ async def find_items(
     # returns 1, with the two sets not nested, so the conjunction would be wrong in both
     # directions. The requested fields are alternatives, so they are queried as such.
     seen: set[str] = set()
-    wanted: list[Any] = []
+    collected: list[Any] = []
+    excluded = 0
+    scanned = 0
     for field_name in selection.fields:
         offset = 0
-        while len(wanted) < selection.limit:
+        while len(collected) < selection.limit:
             page = await client.items(
                 kind=item_kind,
                 parent_id=selection.parent_id,
                 search_term=selection.search,
                 start_index=offset,
-                limit=min(200, selection.limit - len(wanted) + len(seen)),
-                filters={field_name: selection.target},
+                limit=min(200, selection.limit - len(collected) + len(seen)),
+                filters={field_name: selection.target, **facets},
             )
             if not page.Items:
                 break
@@ -399,16 +441,26 @@ async def find_items(
                 if key in seen:
                     continue
                 seen.add(key)
-                wanted.append(dto)
+                scanned += 1
+                if not wanted.carries(dto):
+                    excluded += 1
+                    continue
+                collected.append(dto)
             offset += len(page.Items)
             if offset >= (page.TotalRecordCount or 0):
                 break
-        if len(wanted) >= selection.limit:
+        if len(collected) >= selection.limit:
             break
-    return wanted[: selection.limit]
+    return SelectionOutcome(
+        items=collected[: selection.limit],
+        scanned=scanned,
+        excluded=excluded,
+    )
 
 
-async def _scan_for_component(client: JellyfinClient, *, selection: RemovalSelection) -> list[Any]:
+async def _scan_for_component(
+    client: JellyfinClient, *, selection: RemovalSelection, wanted: Selection
+) -> SelectionOutcome:
     """Items whose *packed* value contains the target as one of its components.
 
     A scan is unavoidable here and that is a property of the server, not a shortcut.
@@ -435,8 +487,11 @@ async def _scan_for_component(client: JellyfinClient, *, selection: RemovalSelec
             f"{sorted(ITEM_KIND_BY_QUERY)}"
         )
 
+    facets = wanted.jellyfin_params()
     matched: list[Any] = []
     scanned = 0
+    excluded = 0
+    truncated = True
     while scanned < MAX_SCAN_ITEMS and len(matched) < selection.limit:
         page = await client.items(
             kind=item_kind,
@@ -444,18 +499,34 @@ async def _scan_for_component(client: JellyfinClient, *, selection: RemovalSelec
             search_term=selection.search,
             start_index=scanned,
             limit=min(SCAN_PAGE_SIZE, MAX_SCAN_ITEMS - scanned),
+            filters=facets,
         )
         if not page.Items:
+            truncated = False
             break
         for dto in page.Items:
             scanned += 1
+            if not wanted.carries(dto):
+                excluded += 1
+                continue
             if _carries(dto, selection):
                 matched.append(dto)
                 if len(matched) >= selection.limit:
                     break
-        if scanned >= (page.TotalRecordCount or 0):
+        if len(matched) >= selection.limit:
+            # The selection is full; more matching items exist than were asked for, which
+            # is the requested limit being honoured rather than an incomplete read.
+            truncated = False
             break
-    return matched[: selection.limit]
+        if scanned >= (page.TotalRecordCount or 0):
+            truncated = False
+            break
+    return SelectionOutcome(
+        items=matched[: selection.limit],
+        scanned=scanned,
+        excluded=excluded,
+        truncated=truncated,
+    )
 
 
 def _carries(dto: Any, selection: RemovalSelection) -> bool:
@@ -487,15 +558,16 @@ async def build_job(
     target = _validate_target(selection.target)
     fields = _fields_for(selection.fields)
 
-    dtos = await find_items(client, selection=selection)
+    outcome = await find_items(client, selection=selection)
     job = RemovalJob(
         job_id=uuid.uuid4().hex,
         batch_id=uuid.uuid4().hex,
         created_at=datetime.now(UTC),
         requested=selection.as_dict(),
+        report=outcome,
     )
 
-    for dto in dtos:
+    for dto in outcome.items:
         try:
             kind = item_kind_for(dto)
             item = from_dto(dto.model_dump(), kind)

@@ -22,3 +22,4 @@ A record is superseded by a new one (status change), never rewritten.
 | [0014](0014-premiere-date-is-a-wire-string.md) | `PremiereDate` is a wire string everywhere outside comparison | Accepted |
 | [0015](0015-exact-genre-matching.md) | Genre matching is exact and case-insensitive; a comma is never guessed at | Accepted |
 | [0016](0016-operator-policy-in-the-database.md) | Operator policy is stored in the database, not only in the environment | Accepted |
+| [0017](0017-facet-filters-and-exclusion-patterns.md) | Facet filters are id-validated; exclusion patterns are literal globs | Accepted |

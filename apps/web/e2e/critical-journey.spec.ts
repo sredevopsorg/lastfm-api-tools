@@ -16,6 +16,23 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 const API = process.env.E2E_API_URL ?? 'http://127.0.0.1:8080'
 const STUB = process.env.E2E_STUB_URL ?? 'http://127.0.0.1:8096'
 
+/**
+ * The server-side id of a fixture item, by the readable name the stub knows it by.
+ *
+ * Ids used to be readable (`art-1`), which let the specs hard-code them in a URL. They are
+ * 32-hex now, because that is the only shape Jellyfin -- or this stub -- will accept as a
+ * filter value, and a fixture that used a friendlier shape could not exercise the facet
+ * filters at all. Hard-coding hex instead would make every spec brittle to a fixture rename,
+ * so the stub exposes the mapping and the specs ask for it.
+ */
+async function idOf(request: APIRequestContext, key: string): Promise<string> {
+  const response = await request.get(`${STUB}/__writes`)
+  const body = (await response.json()) as { ids: Record<string, string> }
+  const found = body.ids[key]
+  if (!found) throw new Error(`the stub library has no item named ${key}`)
+  return found
+}
+
 async function stubState(request: APIRequestContext) {
   const response = await request.get(`${STUB}/__writes`)
   expect(response.ok()).toBeTruthy()
@@ -110,7 +127,7 @@ test('search narrows the library', async ({ page }) => {
 })
 
 test('the diff proposes changes without writing anything', async ({ page, request }) => {
-  await page.goto('/edit/art-1')
+  await page.goto(`/edit/${await idOf(request, 'art-1')}`)
 
   // The candidate list comes from our archive, not from Last.fm.
   await expect(page.getByRole('heading', { name: 'Candidate' })).toBeVisible({
@@ -131,7 +148,7 @@ test('applying writes the selected field and preserves everything else', async (
   page,
   request,
 }) => {
-  await page.goto('/edit/art-1')
+  await page.goto(`/edit/${await idOf(request, 'art-1')}`)
   await expect(page.getByRole('heading', { name: /Proposed changes/ })).toBeVisible({
     timeout: 15_000,
   })
@@ -159,13 +176,13 @@ test('applying writes the selected field and preserves everything else', async (
   })
 
   // The server now holds the new genres, so the write really landed.
-  const after = libraryItem(state, 'art-1')
+  const after = libraryItem(state, await idOf(request, 'art-1'))
   expect(after.Genres).toEqual(expect.arrayContaining(['Rock']))
   expect(after.Tags).toEqual(['keep-me'])
 })
 
 test('undoing restores the previous values', async ({ page, request }) => {
-  await page.goto('/edit/art-1')
+  await page.goto(`/edit/${await idOf(request, 'art-1')}`)
   await expect(page.getByRole('heading', { name: /Proposed changes/ })).toBeVisible({
     timeout: 15_000,
   })
@@ -178,18 +195,18 @@ test('undoing restores the previous values', async ({ page, request }) => {
   // The history is what makes the write reversible.
   await expect(page.getByRole('heading', { name: 'History' })).toBeVisible()
   const applied = await stubState(request)
-  const afterApply = libraryItem(applied, 'art-1').Genres
+  const afterApply = libraryItem(applied, await idOf(request, 'art-1')).Genres
   expect(afterApply).toEqual(expect.arrayContaining(['Rock']))
 
   await page.getByRole('button', { name: 'revert' }).first().click()
 
   await expect
-    .poll(async () => libraryItem(await stubState(request), 'art-1').Genres)
+    .poll(async () => libraryItem(await stubState(request), await idOf(request, 'art-1')).Genres)
     .not.toEqual(afterApply)
 })
 
-test('a revert is itself recorded, so history is never mutated', async ({ page }) => {
-  await page.goto('/edit/art-1')
+test('a revert is itself recorded, so history is never mutated', async ({ page, request }) => {
+  await page.goto(`/edit/${await idOf(request, 'art-1')}`)
   await expect(page.getByRole('heading', { name: /Proposed changes/ })).toBeVisible({
     timeout: 15_000,
   })
@@ -343,7 +360,7 @@ test.describe('fetching from Last.fm', () => {
     // Last.fm does not hold everything a library does, so a miss is normal. It must come
     // back as a reported outcome with a reason -- an error status would abort a
     // library-wide fetch at the first obscure item.
-    const response = await request.post(`${API}/api/items/art-3/harvest`)
+    const response = await request.post(`${API}/api/items/${await idOf(request, 'art-3')}/harvest`)
     expect(response.ok(), 'a miss must not be an error status').toBeTruthy()
 
     const outcome = (await response.json()) as {
@@ -360,7 +377,7 @@ test.describe('fetching from Last.fm', () => {
   test('an item with nothing to look up says so rather than guessing', async ({ request }) => {
     // `art-3` has no MusicBrainz id and no artist, so there is no query to derive. The
     // endpoint must say that rather than searching for an empty string.
-    const response = await request.post(`${API}/api/items/art-3/harvest`)
+    const response = await request.post(`${API}/api/items/${await idOf(request, 'art-3')}/harvest`)
     const outcome = (await response.json()) as { error_code: string | null }
     expect(['not_found', 'insufficient_item_data']).toContain(outcome.error_code)
   })
@@ -372,10 +389,10 @@ test.describe('the review and confirm step', () => {
     request,
   }) => {
     // Fetch first, so the review has something real to propose.
-    const harvested = await request.post(`${API}/api/items/alb-1/harvest`)
+    const harvested = await request.post(`${API}/api/items/${await idOf(request, 'alb-1')}/harvest`)
     expect(harvested.ok()).toBeTruthy()
 
-    await page.goto('/review?kind=album&ids=alb-1')
+    await page.goto(`/review?kind=album&ids=${await idOf(request, 'alb-1')}`)
     await expect(page.getByRole('heading', { name: 'Review' })).toBeVisible()
 
     // Nothing is compared until asked, and comparing writes nothing.
@@ -416,10 +433,10 @@ test.describe('the review and confirm step', () => {
   test('a review writes nothing when no field is ticked', async ({ page, request }) => {
     // The default selection is empty for anything needing review, so confirming an
     // untouched review must be a no-op rather than an uncontrolled write.
-    const harvested = await request.post(`${API}/api/items/alb-2/harvest`)
+    const harvested = await request.post(`${API}/api/items/${await idOf(request, 'alb-2')}/harvest`)
     expect(harvested.ok()).toBeTruthy()
 
-    await page.goto('/review?kind=album&ids=alb-2')
+    await page.goto(`/review?kind=album&ids=${await idOf(request, 'alb-2')}`)
     await page.getByRole('button', { name: /^Compare 1 item/ }).click()
     await expect(page.getByRole('heading', { name: 'Proposed changes' })).toBeVisible({
       timeout: 20_000,

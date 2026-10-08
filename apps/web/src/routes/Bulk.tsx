@@ -10,6 +10,7 @@ import {
   type SelectionKind,
 } from '../api/client'
 import { ConfidenceBadge, ErrorNote } from '../components/ui'
+import { EMPTY_FACETS, SelectionFilters, type FacetValues } from '../components/facet_controls'
 
 const KINDS: { value: SelectionKind; label: string }[] = [
   { value: 'artist', label: 'Artists' },
@@ -49,6 +50,10 @@ export function Bulk() {
   // operator expected to see, and the only signal would be a number they did not check.
   const [missingAspects, setMissingAspects] = useState<string[]>([])
   const [minConfidence, setMinConfidence] = useState(0)
+  // The same three narrowings the library browse offers, because they are answered by the
+  // same selection logic -- a batch that could not exclude compilations would write to
+  // them, and the operator would have seen them filtered out on the browse screen.
+  const [facets, setFacets] = useState<FacetValues>(EMPTY_FACETS)
 
   const [reviewed, setReviewed] = useState<ReviewedItem[] | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -87,6 +92,9 @@ export function Bulk() {
             // Omitted when empty so the server's default applies, rather than sending
             // an empty list the schema has to interpret.
             ...(missingAspects.length ? { missing: missingAspects as never } : {}),
+            ...(facets.artistIds.length ? { artist_ids: facets.artistIds } : {}),
+            ...(facets.albumIds.length ? { album_ids: facets.albumIds } : {}),
+            ...(facets.patterns.length ? { exclude: facets.patterns } : {}),
           },
           min_confidence: minConfidence,
         },
@@ -244,6 +252,13 @@ export function Bulk() {
             {diffing ? 'Reviewing…' : 'Review'}
           </button>
         </div>
+
+        <SelectionFilters
+          kind={kind}
+          values={facets}
+          onChange={setFacets}
+          idPrefix="bulk"
+        />
         <p className="muted small">
           An item whose best match is not trustworthy is reported as skipped, never
           guessed at. Reviewing writes nothing.

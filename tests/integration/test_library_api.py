@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from tests.support.jellyfin import apply_facet_filters
 
 from metaedit.adapters.jellyfin.client import JellyfinClient
 from metaedit.config import Settings, get_settings
@@ -77,7 +78,36 @@ SONG: dict[str, Any] = {
     "ProductionLocations": [],
     "People": [],
     "LockedFields": [],
+    # The credit pairs, which are what `ArtistIds` actually reads. Without them a facet
+    # filter would match nothing here, and the test would be asserting on the mock's
+    # emptiness rather than on the filter.
+    "ArtistItems": [{"Name": "Radiohead", "Id": "aaaaaaaa-0000-0000-0000-000000000001"}],
+    "AlbumArtists": [{"Name": "Radiohead", "Id": "aaaaaaaa-0000-0000-0000-000000000001"}],
 }
+
+ALBUM: dict[str, Any] = {
+    "Id": "bbbbbbbb-0000-0000-0000-000000000002",
+    "Type": "MusicAlbum",
+    "Name": "OK Computer",
+    "Etag": "etag-album-1",
+    "SourceType": "Library",
+    "AlbumArtist": "Radiohead",
+    "Artists": ["Radiohead"],
+    "AlbumArtists": [{"Name": "Radiohead", "Id": "aaaaaaaa-0000-0000-0000-000000000001"}],
+    "ArtistItems": [{"Name": "Radiohead", "Id": "aaaaaaaa-0000-0000-0000-000000000001"}],
+    "Genres": [],
+    "Tags": [],
+    "ProviderIds": {},
+    "ExternalUrls": [],
+    "Studios": [],
+    "ProductionLocations": [],
+    "People": [],
+    "LockedFields": [],
+}
+
+# Every fixture the browse handler answers with. A tuple rather than a set, so an
+# unfiltered browse has a stable order to assert on.
+LIBRARY: tuple[dict[str, Any], ...] = (ARTIST, ARTIST_2, ALBUM, SONG)
 
 
 def _settings() -> Settings:
@@ -208,7 +238,13 @@ def _handler(request: httpx.Request) -> httpx.Response:
         # artist, because nothing filtered the song out. A mock that answers every
         # question identically cannot fail, and this one had been hiding the difference.
         wanted = {t for t in (request.url.params.get("includeItemTypes") or "").split(",") if t}
-        items = [row for row in (ARTIST, ARTIST_2, SONG) if not wanted or row["Type"] in wanted]
+        items = [row for row in LIBRARY if not wanted or row["Type"] in wanted]
+
+        # `ArtistIds`/`AlbumIds`, with the real semantics including the trap: an
+        # unparseable list is discarded *in full* and the server answers with the
+        # unfiltered set. Modelling that is the point — a mock that ignored a bad list
+        # would make the app's id validation look like needless defensiveness.
+        items = apply_facet_filters(request.url.params, items)
 
         # Real paging, so a scan's batching is exercised rather than assumed.
         start = int(request.url.params.get("startIndex") or 0)
@@ -221,7 +257,7 @@ def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(204)
     if path.startswith("/Items/"):
         item_id = path.rsplit("/", 1)[-1]
-        for candidate in (ARTIST, ARTIST_2, SONG):
+        for candidate in LIBRARY:
             if candidate["Id"] == item_id:
                 return httpx.Response(200, json=candidate)
         return httpx.Response(404, json={"error": "not found"})
@@ -533,3 +569,200 @@ def test_an_uncapped_scan_is_not_marked_truncated(
     with _client() as client:
         body = client.get("/api/items?kind=song&missing=genres").json()
     assert body["scan"]["truncated"] is False
+
+
+# ------------------------------------------------------------------ facet filters
+#
+# `ArtistIds`/`AlbumIds` are Jellyfin's own parameters, so the response shape is identical
+# whether the filter was applied, ignored, or never sent -- which is why these tests read
+# the *outbound request* as well as the response. Live-verified: an unparseable list makes
+# the server ignore the parameter and answer with the unfiltered library, so "the filter was
+# sent" and "the filter worked" are different claims and both are asserted.
+
+FACET_ARTIST = "aaaaaaaa-0000-0000-0000-000000000001"
+FACET_ALBUM = "bbbbbbbb-0000-0000-0000-000000000002"
+
+
+def test_albums_are_narrowed_to_an_artist(client: TestClient, seen_requests: list[Any]) -> None:
+    body = client.get("/api/items", params={"kind": "album", "artist_ids": FACET_ARTIST}).json()
+
+    assert [item["name"] for item in body["items"]] == ["OK Computer"]
+    assert body["total"] == 1, "the filtered count, not the 1 album in the library by luck"
+    assert body["scan"] is None, "Jellyfin can express this, so no scan is needed"
+    query = _browse_query(seen_requests)
+    assert query["ArtistIds"] == FACET_ARTIST
+
+
+def test_songs_are_narrowed_by_artist_and_by_album(
+    client: TestClient, seen_requests: list[Any]
+) -> None:
+    by_artist = client.get("/api/items", params={"kind": "song", "artist_ids": FACET_ARTIST}).json()
+    assert [item["name"] for item in by_artist["items"]] == ["Paranoid Android"]
+
+    by_album = client.get("/api/items", params={"kind": "song", "album_ids": FACET_ALBUM}).json()
+    assert [item["name"] for item in by_album["items"]] == ["Paranoid Android"]
+
+
+def test_the_two_song_facets_intersect(client: TestClient) -> None:
+    """`and/or` in the UI, `&` on the wire.
+
+    Live-verified that both parameters together narrow both ways (ABBA + one album = 19 of
+    the 21 songs credited to ABBA). So an album belonging to a *different* artist must
+    return nothing rather than falling back to one of the two.
+    """
+    both = client.get(
+        "/api/items",
+        params={
+            "kind": "song",
+            "artist_ids": "aaaaaaaa-0000-0000-0000-000000000002",  # Portishead
+            "album_ids": FACET_ALBUM,  # an album by Radiohead
+        },
+    ).json()
+    assert both["total"] == 0
+    assert both["items"] == []
+
+
+def test_ids_are_sent_as_one_comma_separated_value(
+    client: TestClient, seen_requests: list[Any]
+) -> None:
+    """A repeated parameter also unions on the server, but one spelling is one thing to
+    get wrong -- and the app's own `queryString` already emits repeats for `missing`."""
+    client.get(
+        "/api/items",
+        params={
+            "kind": "album",
+            "artist_ids": [FACET_ARTIST, "aaaaaaaa-0000-0000-0000-000000000002"],
+        },
+    )
+    query = _browse_query(seen_requests)
+    assert query["ArtistIds"] == f"{FACET_ARTIST},aaaaaaaa-0000-0000-0000-000000000002"
+
+
+@pytest.mark.parametrize("bad", ["abc", "0" * 40, f"{FACET_ARTIST}|{FACET_ALBUM}"])
+def test_an_unparseable_id_is_refused_rather_than_sent(
+    client: TestClient, seen_requests: list[Any], bad: str
+) -> None:
+    """The dangerous shape, and the reason `domain.identifiers` exists.
+
+    Probed live: `ArtistIds=abc`, a pipe-joined pair and a 40-character string each return
+    the *whole* library -- 502 albums, 5,442 songs -- because Jellyfin discards a list it
+    cannot parse and applies no filter at all. A client that passed the id through would
+    show a full table while the operator believed they had narrowed it.
+    """
+    response = client.get("/api/items", params={"kind": "album", "artist_ids": bad})
+
+    assert response.status_code == 422
+    assert "unfiltered library" in response.json()["error"]["message"]
+    assert not [r for r in seen_requests if r.url.path == "/Items"], (
+        "a request refused at the boundary must not reach Jellyfin first"
+    )
+
+
+@pytest.mark.parametrize(
+    ("kind", "param"),
+    [("artist", "artist_ids"), ("artist", "album_ids"), ("album", "album_ids")],
+)
+def test_a_facet_that_cannot_apply_is_refused(client: TestClient, kind: str, param: str) -> None:
+    """Jellyfin *applies* these and returns zero — measured: `ArtistIds` on
+    `IncludeItemTypes=MusicArtist` returns 0 of 639. An empty table reads as a library with
+    nothing in it, so the combination is refused instead of answered."""
+    response = client.get("/api/items", params={"kind": kind, param: FACET_ARTIST})
+
+    assert response.status_code == 422
+    assert "does not narrow" in response.json()["error"]["message"]
+
+
+# ------------------------------------------------------------------ exclusion patterns
+
+
+def test_an_exclusion_pattern_drops_the_matching_items(client: TestClient) -> None:
+    body = client.get("/api/items", params={"kind": "song", "exclude": "*android*"}).json()
+
+    assert body["total"] == 0
+    assert body["items"] == []
+    scan = body["scan"]
+    assert scan is not None, "Jellyfin has no parameter for this, so it must report a scan"
+    assert scan["scanned"] == 1
+    assert scan["excluded"] == 1, "the count is what explains the empty table"
+
+
+def test_a_pattern_matches_the_album_artist_not_only_the_name(client: TestClient) -> None:
+    """The single most useful exclusion in a music library.
+
+    `Various Artists` is a compilation marker and it lives in the album artist, not in the
+    track name or the album name -- so a matcher that read only `Name` would leave every
+    compilation in the selection. Here the song is called "Paranoid Android" and its album
+    artist is Radiohead.
+    """
+    body = client.get("/api/items", params={"kind": "song", "exclude": "radiohead"}).json()
+    assert body["total"] == 0
+    assert body["scan"]["excluded"] == 1
+
+
+def test_a_bare_pattern_is_literal_and_a_wildcard_is_not(client: TestClient) -> None:
+    # `android` (no wildcards) matches neither the song's name nor its album, so nothing is
+    # excluded -- the pattern is exact, which is what stops a short word from quietly
+    # swallowing a long list.
+    literal = client.get("/api/items", params={"kind": "song", "exclude": "android"}).json()
+    # The whole body on failure: `matched` and `excluded` are what distinguish "the
+    # pattern matched nothing" from "the scan kept nothing", and a bare 0 == 1 does not.
+    assert literal["total"] == 1, literal
+    assert literal["scan"]["excluded"] == 0
+
+
+def test_exclusion_and_missing_are_counted_separately(client: TestClient) -> None:
+    """The two filters share one pass, so the report must not conflate them.
+
+    Exclusion runs first and is counted on its own: an item dropped by a pattern is not
+    also "matched, but missing nothing", and `scanned - matched` would call it both.
+    """
+    body = client.get(
+        "/api/items",
+        params={"kind": "artist", "missing": "genres", "exclude": "*portishead*"},
+    ).json()
+    scan = body["scan"]
+    assert scan["scanned"] == 2
+    assert scan["excluded"] == 1, "Portishead matched the pattern"
+    assert scan["matched"] == 0, "Radiohead has a genre, so it is not a match either"
+    assert body["total"] == 0
+
+
+def test_exclusion_paginates_over_the_filtered_set(client: TestClient) -> None:
+    """`total` is the filtered count, so paging is meaningful rather than a window over
+    everything with holes in it."""
+    body = client.get(
+        "/api/items",
+        params={"kind": "artist", "exclude": "*filler*", "page_size": 1},
+    ).json()
+
+    assert body["total"] == 2, body  # nothing here matches *filler*
+    assert len(body["items"]) == 1
+    assert body["start_index"] == 0
+
+
+def test_a_truncated_exclusion_scan_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pattern that cannot finish reading the library returns a lower bound."""
+    monkeypatch.setenv("METAEDIT_BROWSE_SCAN_CAP", "1")
+    with _client() as client:
+        body = client.get("/api/items", params={"kind": "artist", "exclude": "*zzz*"}).json()
+
+    scan = body["scan"]
+    assert scan["limit"] == 1
+    assert scan["scanned"] == 1
+    assert scan["truncated"] is True
+
+
+def test_an_overlong_pattern_is_refused_before_any_upstream_call(
+    client: TestClient, seen_requests: list[Any]
+) -> None:
+    response = client.get("/api/items", params={"kind": "artist", "exclude": "*" * 500})
+
+    assert response.status_code == 422
+    assert not [r for r in seen_requests if r.url.path == "/Items"]
+
+
+def test_no_exclusion_patterns_means_no_scan(client: TestClient) -> None:
+    # The default must stay the cheap path: a browse with no patterns and no aspects is a
+    # single Jellyfin request, and routing it through the scanner would multiply that.
+    body = client.get("/api/items", params={"kind": "artist"}).json()
+    assert body["scan"] is None

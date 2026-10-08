@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from tests.conftest import requires_postgres
+from tests.support.jellyfin import apply_facet_filters
 
 from metaedit.archive.reindex import reindex
 from metaedit.archive.store import ArchiveStore, Observation
@@ -112,13 +113,18 @@ class StubJellyfin:
             raw_ids = request.url.params.get("ids")
             if raw_ids:
                 found = [self.items[i] for i in raw_ids.split(",") if i in self.items]
-            else:
-                # A browse query (includeItemTypes), not an id lookup.
-                found = list(self.items.values())
-                limit = request.url.params.get("limit")
-                if limit and str(limit).isdigit():
-                    found = found[: int(limit)]
-            return httpx.Response(200, json={"Items": found, "TotalRecordCount": len(found)})
+                return httpx.Response(200, json={"Items": found, "TotalRecordCount": len(found)})
+            # A browse query (includeItemTypes), not an id lookup. Real paging, so a
+            # selection that must read past items dropped by a pattern is exercised rather
+            # than assumed.
+            found = apply_facet_filters(request.url.params, list(self.items.values()))
+            total = len(found)
+            start = int(request.url.params.get("startIndex") or 0)
+            page = found[start:] if start else found
+            limit = request.url.params.get("limit")
+            if limit and str(limit).isdigit():
+                page = page[: int(limit)]
+            return httpx.Response(200, json={"Items": page, "TotalRecordCount": total})
         if path.startswith("/Items/") and request.method == "POST":
             item_id = path.split("/")[2]
             if item_id in self.fail_for:
@@ -521,3 +527,118 @@ def _job_id(http: TestClient) -> str:
     events = _events(http.post("/api/bulk/diff", json=SELECTION).text)
     summary = next(event for event in events if event["type"] == "summary")
     return str(summary["job_id"])
+
+
+# --------------------------------------------------- the shared selection narrowings
+#
+# A batch's selection accepts the same artist/album facets and exclusion patterns the
+# browse screen does, read through the same `service.selection` module. The property that
+# matters is that a filter cannot make a batch *shorter* than its limit while more matching
+# items exist, because the operator reads that as "there is nothing else to do".
+
+
+def test_an_exclusion_pattern_drops_items_and_says_how_many(
+    client: tuple[TestClient, StubJellyfin, str],
+) -> None:
+    http, _, _ = client
+    events = _events(
+        http.post(
+            "/api/bulk/diff",
+            json={"selection": {"kind": "artist", "limit": 10, "exclude": ["*portishead*"]}},
+        ).text
+    )
+
+    items = [event for event in events if event["type"] == "item"]
+    summary = next(event for event in events if event["type"] == "summary")
+    assert len(items) == 3, "four artists, one excluded by name"
+    assert summary["excluded"] == 1
+    assert summary["scanned"] == 4, "the library was read to decide that"
+
+
+def test_an_exclusion_pattern_does_not_consume_the_limit(
+    client: tuple[TestClient, StubJellyfin, str],
+) -> None:
+    """The reason the batch selection over-fetches rather than filtering one page.
+
+    With `limit: 2` and one excluded artist, a selection that fetched two items, dropped
+    one and stopped would report a batch of one -- indistinguishable, from the operator's
+    seat, from a library that only had one item to fix.
+    """
+    http, _, _ = client
+    events = _events(
+        http.post(
+            "/api/bulk/diff",
+            json={"selection": {"kind": "artist", "limit": 2, "exclude": ["*portishead*"]}},
+        ).text
+    )
+
+    items = [event for event in events if event["type"] == "item"]
+    summary = next(event for event in events if event["type"] == "summary")
+    assert len(items) == 2, "the limit is filled from the items that survive the pattern"
+    assert summary["excluded"] == 1
+
+
+def test_a_pattern_that_matches_nothing_leaves_the_batch_alone(
+    client: tuple[TestClient, StubJellyfin, str],
+) -> None:
+    """The mirror image, and the one that would go unnoticed: a pattern that silently
+    matched everything would look like an empty library rather than a broken filter."""
+    http, _, _ = client
+    events = _events(
+        http.post(
+            "/api/bulk/diff",
+            json={"selection": {"kind": "artist", "limit": 10, "exclude": ["*zzz*"]}},
+        ).text
+    )
+
+    items = [event for event in events if event["type"] == "item"]
+    summary = next(event for event in events if event["type"] == "summary")
+    assert len(items) == 4
+    assert summary["excluded"] == 0
+
+
+def test_an_unparseable_facet_id_is_refused(
+    client: tuple[TestClient, StubJellyfin, str],
+) -> None:
+    """Refused rather than sent, because Jellyfin drops an unparseable list in full and
+    answers with the *unfiltered* library -- on this screen, a library-wide batch."""
+    http, _, _ = client
+    response = http.post(
+        "/api/bulk/diff",
+        json={"selection": {"kind": "song", "artist_ids": ["abc"]}},
+    )
+
+    assert response.status_code == 422, response.text
+    assert "unfiltered library" in response.json()["error"]["message"]
+
+
+def test_a_facet_that_cannot_apply_is_refused(
+    client: tuple[TestClient, StubJellyfin, str],
+) -> None:
+    http, _, _ = client
+    response = http.post(
+        "/api/bulk/diff",
+        json={"selection": {"kind": "artist", "artist_ids": ["a" * 32]}},
+    )
+
+    assert response.status_code == 422, response.text
+    assert "does not narrow" in response.json()["error"]["message"]
+
+
+def test_a_reviewed_batch_records_what_its_selection_did(
+    client: tuple[TestClient, StubJellyfin, str],
+) -> None:
+    """`GET /bulk/jobs` describes the job as the summary event did.
+
+    The `excluded` key has to be *declared* on the response model: an undeclared one is
+    discarded silently, which is how `removing` went missing from the removal list once.
+    """
+    http, _, _ = client
+    http.post(
+        "/api/bulk/diff",
+        json={"selection": {"kind": "artist", "limit": 10, "exclude": ["*portishead*"]}},
+    )
+    jobs = http.get("/api/bulk/jobs").json()["jobs"]
+
+    assert jobs[-1]["excluded"] == 1
+    assert jobs[-1]["items"] == 3

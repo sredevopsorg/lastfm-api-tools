@@ -974,6 +974,9 @@
           "selection": {
             "$ref": "#/components/schemas/BulkSelection",
             "default": {
+              "album_ids": [],
+              "artist_ids": [],
+              "exclude": [],
               "kind": "artist",
               "limit": 50,
               "missing": []
@@ -1171,6 +1174,11 @@
             "title": "Created At",
             "type": "string"
           },
+          "excluded": {
+            "default": 0,
+            "title": "Excluded",
+            "type": "integer"
+          },
           "items": {
             "title": "Items",
             "type": "integer"
@@ -1226,6 +1234,30 @@
       "BulkSelection": {
         "description": "Which items, and nothing else. The fields to write are chosen after review.",
         "properties": {
+          "album_ids": {
+            "description": "only songs on these albums; applies to `song`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Album Ids",
+            "type": "array"
+          },
+          "artist_ids": {
+            "description": "only items credited to these artists; applies to `album` and `song`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Artist Ids",
+            "type": "array"
+          },
+          "exclude": {
+            "description": "case-insensitive glob patterns; an item whose name, album or album artist matches any of them is dropped.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Exclude",
+            "type": "array"
+          },
           "ids": {
             "anyOf": [
               {
@@ -1344,6 +1376,17 @@
             ],
             "title": "Batch Revert"
           },
+          "excluded": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded"
+          },
           "failed": {
             "anyOf": [
               {
@@ -1396,6 +1439,17 @@
             ],
             "title": "Reverted"
           },
+          "scanned": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned"
+          },
           "skipped": {
             "anyOf": [
               {
@@ -1406,6 +1460,17 @@
               }
             ],
             "title": "Skipped"
+          },
+          "truncated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truncated"
           },
           "type": {
             "const": "summary",
@@ -2260,6 +2325,9 @@
           "selection": {
             "$ref": "#/components/schemas/GenreRemovalSelection",
             "default": {
+              "album_ids": [],
+              "artist_ids": [],
+              "exclude": [],
               "kind": "artist",
               "limit": 100
             }
@@ -2274,6 +2342,30 @@
       "GenreRemovalSelection": {
         "description": "Which items to look in.\n\nNo `missing` filter here, unlike `BulkSelection`: this tool selects by *having* a\ngenre, which Jellyfin can express natively and cheaply, rather than by lacking\nsomething, which it cannot.",
         "properties": {
+          "album_ids": {
+            "description": "only songs on these albums; applies to `song`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Album Ids",
+            "type": "array"
+          },
+          "artist_ids": {
+            "description": "only items credited to these artists; applies to `album` and `song`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Artist Ids",
+            "type": "array"
+          },
+          "exclude": {
+            "description": "case-insensitive glob patterns; an item whose name, album or album artist matches any of them is dropped. Worth more here than anywhere else: removing a genre from every compilation is rarely what is meant.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Exclude",
+            "type": "array"
+          },
           "ids": {
             "anyOf": [
               {
@@ -2706,6 +2798,9 @@
           "selection": {
             "$ref": "#/components/schemas/HarvestSelection",
             "default": {
+              "album_ids": [],
+              "artist_ids": [],
+              "exclude": [],
               "kind": "artist",
               "limit": 50,
               "missing": []
@@ -2767,6 +2862,30 @@
       "HarvestSelection": {
         "description": "Which items to fetch for. Mirrors the library browse parameters.",
         "properties": {
+          "album_ids": {
+            "description": "only songs on these albums; applies to `song`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Album Ids",
+            "type": "array"
+          },
+          "artist_ids": {
+            "description": "only items credited to these artists; applies to `album` and `song`",
+            "items": {
+              "type": "string"
+            },
+            "title": "Artist Ids",
+            "type": "array"
+          },
+          "exclude": {
+            "description": "case-insensitive glob patterns; an item whose name, album or album artist matches any of them is dropped",
+            "items": {
+              "type": "string"
+            },
+            "title": "Exclude",
+            "type": "array"
+          },
           "ids": {
             "anyOf": [
               {
@@ -3527,6 +3646,11 @@
             "title": "Created At",
             "type": "string"
           },
+          "excluded": {
+            "default": 0,
+            "title": "Excluded",
+            "type": "integer"
+          },
           "items": {
             "title": "Items",
             "type": "integer"
@@ -3670,6 +3794,17 @@
             "title": "Emptied",
             "type": "array"
           },
+          "excluded": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded"
+          },
           "failed": {
             "anyOf": [
               {
@@ -3733,6 +3868,17 @@
             ],
             "title": "Reverted"
           },
+          "scanned": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned"
+          },
           "skipped": {
             "anyOf": [
               {
@@ -3743,6 +3889,17 @@
               }
             ],
             "title": "Skipped"
+          },
+          "truncated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truncated"
           },
           "type": {
             "const": "summary",
@@ -3769,6 +3926,11 @@
       "ScanInfo": {
         "description": "What a filter that required reading items actually read.\n\nA filtered count is only meaningful next to the number it was drawn from. Without\nthis, \"38 items missing genres\" is indistinguishable from \"38 in the first 200\",\nand silence about the difference is how the previous implementation managed to print\nan unfiltered total above a filtered table for as long as it did.",
         "properties": {
+          "excluded": {
+            "default": 0,
+            "title": "Excluded",
+            "type": "integer"
+          },
           "limit": {
             "title": "Limit",
             "type": "integer"
@@ -4051,7 +4213,7 @@
   "info": {
     "description": "Browse a Jellyfin music library, read artist/album/track metadata from the\nLast.fm API, keep a persistent incremental local archive of every Last.fm\nresponse, review a field-level diff, and apply the accepted changes back to\nJellyfin.\n",
     "title": "metaedit",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4495,6 +4657,9 @@
                   "min_confidence": 0.0,
                   "overrides": [],
                   "selection": {
+                    "album_ids": [],
+                    "artist_ids": [],
+                    "exclude": [],
                     "kind": "artist",
                     "limit": 50,
                     "missing": []
@@ -4905,6 +5070,9 @@
                   "reindex": true,
                   "search_fallback": true,
                   "selection": {
+                    "album_ids": [],
+                    "artist_ids": [],
+                    "exclude": [],
                     "kind": "artist",
                     "limit": 50,
                     "missing": []
@@ -5039,7 +5207,7 @@
     },
     "/api/items": {
       "get": {
-        "description": "Browse one media type, ordered and narrowed.\n\n`sort` is validated against an allow-list rather than passed through. Live-verified\non 12.2.0: an unrecognised `sortBy` is accepted and *silently ignored*, so a\npass-through would let the UI present items in one order while claiming another.",
+        "description": "Browse one media type, ordered and narrowed.\n\n`sort` is validated against an allow-list rather than passed through. Live-verified\non 12.2.0: an unrecognised `sortBy` is accepted and *silently ignored*, so a\npass-through would let the UI present items in one order while claiming another.\n\nThree kinds of narrowing, and the difference matters to whoever reads `total`:\n\n* `artist_ids`/`album_ids` -- Jellyfin's own parameters. Exact, free, and `total`\n  accounts for them. They union within a parameter and intersect across them.\n* `has_overview`/`year` -- also Jellyfin's, also free.\n* `missing`/`exclude` -- Jellyfin cannot express either, so both cost a scan over the\n  items, and the response says what that scan covered.\n\nEvery one of these arrives from a hand-editable URL, so the ids are shape-checked\nbefore they are sent. Jellyfin discards a list it cannot parse *entirely* and answers\nwith the unfiltered library, so an unchecked id would silently widen this query\nrather than narrow it -- see `domain.identifiers`.",
         "operationId": "items_api_items_get",
         "parameters": [
           {
@@ -5210,6 +5378,69 @@
               ],
               "description": "only items lacking any of these: genres, provider_ids, overview, tags. Jellyfin cannot express this for music, so it requires a scan and the response reports what the scan covered under `scan`. Aspects that do not apply to the media type are ignored rather than matching everything.",
               "title": "Missing"
+            }
+          },
+          {
+            "description": "only items credited to these artists. Jellyfin's own filter, so `total` reflects it and no scan is needed. Narrow `album` and `song`, not `artist`: Jellyfin answers an artist query with zero rather than ignoring it, which is refused here instead of returned.",
+            "in": "query",
+            "name": "artist_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only items credited to these artists. Jellyfin's own filter, so `total` reflects it and no scan is needed. Narrow `album` and `song`, not `artist`: Jellyfin answers an artist query with zero rather than ignoring it, which is refused here instead of returned.",
+              "title": "Artist Ids"
+            }
+          },
+          {
+            "description": "only songs on these albums. Jellyfin's own filter. Narrow `song` only, for the same reason as `artist_ids`.",
+            "in": "query",
+            "name": "album_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only songs on these albums. Jellyfin's own filter. Narrow `song` only, for the same reason as `artist_ids`.",
+              "title": "Album Ids"
+            }
+          },
+          {
+            "description": "case-insensitive glob patterns (`*`, `?`); an item whose name, album or album artist matches any of them is dropped. Literal -- `live` matches `live` only, and `*live*` is what matches a substring. Jellyfin has no parameter for this, so it requires a scan, reported under `scan`.",
+            "in": "query",
+            "name": "exclude",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "case-insensitive glob patterns (`*`, `?`); an item whose name, album or album artist matches any of them is dropped. Literal -- `live` matches `live` only, and `*live*` is what matches a substring. Jellyfin has no parameter for this, so it requires a scan, reported under `scan`.",
+              "title": "Exclude"
             }
           }
         ],
