@@ -47,9 +47,9 @@ jobs:
     env:
       METAEDIT_TEST_DATABASE_URL: postgresql+psycopg://metaedit:metaedit@localhost:5432/metaedit
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -91,7 +91,7 @@ jobs:
 
       - name: Upload coverage artefacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pytest-output
           path: .pytest_cache/v/cache/lastfailed
@@ -99,10 +99,10 @@ jobs:
 
   contract:
     name: API contract
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -115,13 +115,13 @@ jobs:
 
   web:
     name: SPA typecheck and build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: corepack enable
@@ -133,9 +133,9 @@ jobs:
 
   image:
     name: Image builds and starts healthy
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build
         run: docker build -t metaedit:ci .
