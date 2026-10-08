@@ -121,6 +121,109 @@ def test_default_blacklist_is_not_empty() -> None:
     assert len(DEFAULT_BLACKLIST) > 10
 
 
+# ------------------------------------------------- blacklist matching semantics
+#
+# The blacklist is fed by the operator as free text (see ``domain.genre_blacklist``), so
+# these pin the two properties that make that safe: case-insensitivity, and exactness.
+# Both are asserted *through the policy*, because a correct matcher wired to the wrong
+# field would still lose data.
+
+
+def test_a_blacklisted_genre_is_dropped_whatever_its_case() -> None:
+    """The operator types ``Rock``; Last.fm returns ``rock`` and ``ROCK``."""
+    policy = TagPolicy(
+        genre_limit=5, style_limit=5, blacklist=frozenset(), extra_blacklist=frozenset({"rock"})
+    )
+    outcome = policy.apply([TagInput("rock", 90), TagInput("ROCK", 80), TagInput("Rock", 70)])
+    assert outcome.genres == []
+    assert {drop.reason for drop in outcome.dropped} == {"on the blacklist"}
+
+
+def test_a_blacklisted_genre_does_not_drop_a_longer_genre_containing_it() -> None:
+    """``rock`` must not silence ``gothic rock`` or ``progressive rock``.
+
+    A substring matcher here would drop most of a rock library, silently, on the next
+    reindex.
+    """
+    policy = TagPolicy(
+        genre_limit=10, style_limit=10, blacklist=frozenset(), extra_blacklist=frozenset({"rock"})
+    )
+    outcome = policy.apply(
+        [TagInput("gothic rock", 90), TagInput("progressive rock", 80), TagInput("rockabilly", 70)]
+    )
+    assert outcome.genres == ["gothic rock", "progressive rock", "rockabilly"]
+
+
+def test_a_comma_bearing_tag_is_split_before_the_blacklist_sees_it() -> None:
+    """Verified behaviour of the write path, not an assumption.
+
+    ``SPLIT_PATTERN`` splits on a bare comma, so Last.fm's ``"Rock, Reggae"`` reaches the
+    policy as two genres. Blacklisting ``rock`` therefore drops the ``Rock`` piece and
+    keeps ``Reggae`` -- which is exactly what an operator naming ``rock`` intends.
+
+    This is why ``genre_blacklist.matches_any_piece`` exists: matching the un-split string
+    would blacklist nothing at all for a comma-bearing tag.
+    """
+    policy = TagPolicy(
+        genre_limit=10, style_limit=10, blacklist=frozenset(), extra_blacklist=frozenset({"rock"})
+    )
+    outcome = policy.apply([TagInput("Rock, Reggae", 50)])
+    assert outcome.genres == ["Reggae"]
+    assert [drop.reason for drop in outcome.dropped] == ["on the blacklist"]
+
+    # Blacklisting both pieces yields nothing, which is the consistent answer.
+    both = TagPolicy(
+        genre_limit=10,
+        style_limit=10,
+        blacklist=frozenset(),
+        extra_blacklist=frozenset({"rock", "reggae"}),
+    )
+    assert both.apply([TagInput("Rock, Reggae", 50)]).genres == []
+
+
+def test_blacklisting_rock_drops_the_piece_from_a_long_comma_tag() -> None:
+    """Measured on a live album: ``'Thrash Metal, Speed Metal, Heavy Metal, Hard Rock'``.
+
+    An operator who blacklists ``hard rock`` should silence it here too, because that
+    fragment is what would be written into ``Genres``.
+    """
+    policy = TagPolicy(
+        genre_limit=10,
+        style_limit=10,
+        blacklist=frozenset(),
+        extra_blacklist=frozenset({"hard rock"}),
+    )
+    outcome = policy.apply([TagInput("Thrash Metal, Speed Metal, Heavy Metal, Hard Rock", 50)])
+    assert "Hard Rock" not in outcome.genres
+    assert "Thrash Metal" in outcome.genres
+
+
+def test_a_stored_comma_genre_is_decomposed_on_merge() -> None:
+    """Pre-existing behaviour, pinned so it cannot change unnoticed.
+
+    A merge write re-runs ``existing`` through ``SPLIT_PATTERN`` via ``_merge``, so an
+    item holding the curated genre ``"Rock, Reggae"`` ends up with two genres after any
+    merge that touches ``Genres``. Measured live: 8 of 502 albums carry such a value.
+
+    This is a defect in the mapping layer and is *not* introduced or fixed by the
+    blacklist work; the assertion documents the current contract so that a future fix is
+    a deliberate, visible change rather than a silent one.
+    """
+    policy = TagPolicy(genre_limit=5, style_limit=10)
+    outcome = policy.apply([TagInput("gothic", 50)], existing_genres=["Rock, Reggae"])
+    assert outcome.genres == ["Rock", "Reggae", "gothic"]
+
+
+def test_the_policy_blacklist_and_extra_blacklist_both_apply() -> None:
+    policy = TagPolicy(
+        genre_limit=5,
+        style_limit=5,
+        blacklist=frozenset({"rock"}),
+        extra_blacklist=frozenset({"pop"}),
+    )
+    assert policy.apply([TagInput("rock", 90), TagInput("pop", 80)]).genres == []
+
+
 # --------------------------------------------------------- other rejections
 
 
