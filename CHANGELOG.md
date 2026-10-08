@@ -61,6 +61,10 @@ the path parameter. Without that detail the test would have passed for the wrong
   on its own, and a job that breaks on a new runner is more useful than one that quietly
   keeps testing an old one. The versions the tests are actually sensitive to — Python, uv,
   Node and the Postgres image — are pinned explicitly instead.
+- CI's test step no longer appends `-q`. `addopts` already sets one and pytest reads a
+  second as a further drop in verbosity, so it suppressed the summary line: a green run
+  whose log never said how many tests ran, which is exactly the kind of detail that hides a
+  suite that quietly stopped collecting.
 - The repository was renamed to `metaedit`, so the in-repo links and the Last.fm
   `User-Agent` URL now name it. They had been relying on GitHub's redirect for renamed
   repositories, which works right up until someone creates a repository under the old

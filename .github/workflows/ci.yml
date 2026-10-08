@@ -92,8 +92,11 @@ jobs:
       - name: API contract is up to date
         run: uv run python scripts/export_contract.py --check
 
+      # Deliberately no `-q` here: `addopts` already sets one, and pytest treats a
+      # second one as a further drop in verbosity, which suppresses the summary line
+      # entirely. The run passed and the log said nothing about how many tests ran.
       - name: Tests
-        run: uv run pytest -q
+        run: uv run pytest
 
       - name: Upload coverage artefacts on failure
         if: failure()
