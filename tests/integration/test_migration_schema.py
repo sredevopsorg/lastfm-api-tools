@@ -40,6 +40,10 @@ EXPECTED_TABLES = {
     "lastfm_artist_alias",
     "lastfm_entity_tag",
     "archive_stat",
+    # Operator settings (0003). Listed explicitly, like every other table, because the
+    # assertion is an equality rather than a superset: a table appearing here without
+    # being added to this set is meant to fail the suite.
+    "genre_blacklist",
 }
 
 
