@@ -1,0 +1,9 @@
+# Who must review a change before it reaches `main`.
+#
+# The repository ruleset on `main` requires an approving code owner review, so
+# this file is what makes that rule name a person rather than being a no-op.
+# Everything is owned, deliberately: the metadata contract is specified by ADRs
+# 0003, 0004 and 0007, and a change that contradicts one of them should not be
+# able to look like an ordinary diff.
+
+* @ngeorger

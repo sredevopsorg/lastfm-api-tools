@@ -22,11 +22,17 @@ env:
   NODE_VERSION: "22"
 
 jobs:
+  # Every job runs on ubuntu-latest rather than a pinned image, so the runner
+  # moves on its own. That is a deliberate trade: a job that breaks on a new
+  # runner is more useful than one that quietly keeps testing an old one. The
+  # versions the tests are actually sensitive to are pinned explicitly instead --
+  # Python, uv, Node and the Postgres image below.
+  #
   # The Postgres service is declared per job that needs it rather than on a
   # reusable workflow, so each job's dependency is visible in one place.
   python:
     name: Lint, types and tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     services:
       postgres:
         # Pinned to the same tag the compose stack uses. The database is treated
@@ -86,8 +92,11 @@ jobs:
       - name: API contract is up to date
         run: uv run python scripts/export_contract.py --check
 
+      # Deliberately no `-q` here: `addopts` already sets one, and pytest treats a
+      # second one as a further drop in verbosity, which suppresses the summary line
+      # entirely. The run passed and the log said nothing about how many tests ran.
       - name: Tests
-        run: uv run pytest -q
+        run: uv run pytest
 
       - name: Upload coverage artefacts on failure
         if: failure()

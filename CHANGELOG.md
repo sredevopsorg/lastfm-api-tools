@@ -11,6 +11,69 @@ specified by ADRs 0003, 0004 and 0007 and those guarantees are treated as stable
 
 ## [Unreleased]
 
+### Changed
+
+**Postgres-backed tests clone a migrated template instead of migrating per test.** Every
+one of them ran `alembic upgrade head` in a subprocess: most of a second spent importing
+Python and replaying a migration chain whose result is identical every single time. It was
+not a hidden cost either — 132 tests had a measurable setup, adding up to 119 s of the
+139 s the integration suite took, which is to say the suite was mostly replaying
+migrations.
+
+The chain now runs once per session, into a template database, and each test's database is
+copied from it with `CREATE DATABASE ... TEMPLATE`. Every test still gets a private, empty,
+fully migrated database; only the way it is populated changed.
+
+- The integration suite went from **139 s to 36 s**, and the whole suite from **149 s to
+  38 s**, on the machine that measured it. Expect a second or two of movement between runs;
+  the point is the order of magnitude, not the digits.
+- A broken migration now fails the session before any test reports a result, instead of
+  being attributed to whichever test happened to run first.
+- The isolation guarantee is what made the suite trustworthy in the first place, so it is
+  now asserted rather than assumed: `test_test_database_isolation.py` writes a row into one
+  clone and checks the other cannot see it, and checks that a clone really is at the
+  migration head — `alembic_version` is copied rather than applied, and a template built
+  with `create_all` would leave the table empty while every schema test still passed.
+
+### Added
+
+`test_spa_static.py` covers the containment check in the SPA fallback, which had no test.
+It was not decorative: deleting `candidate.is_relative_to(dist)` makes
+`GET /..%2Fsecret.txt` return a file from outside the bundle, which was verified by deleting
+it. The request is percent-encoded deliberately — a literal `../` is collapsed by the client
+and the server before the route sees it, so only an encoded separator actually arrives as
+the path parameter. Without that detail the test would have passed for the wrong reason.
+
+### Notes
+
+- **The four remaining CodeQL alerts are dismissed as false positives**, with the reasoning
+  recorded on each alert so the next reader does not have to redo the analysis. Both rules
+  are tripped by code that is correct:
+  - `py/path-injection` (three alerts, `main.py`) — the alert is on the file read, and the
+    query does not model `pathlib.Path.is_relative_to` as a guard. The guard is there, and
+    now tested.
+  - `py/weak-sensitive-data-hashing` (`canonical.py`) — the hash is a 16-character
+    *correlation* fingerprint so the archive can say which key fetched a payload without
+    storing the key. It is not password storage and is never used to verify anything.
+- Every CI job now runs on `ubuntu-latest`. The previous state was mixed: three jobs on
+  `ubuntu-latest` and the Python job still on `ubuntu-24.04`, which is an inconsistency
+  dressed up as a pin. The deliberate trade is recorded in the workflow: the runner moves
+  on its own, and a job that breaks on a new runner is more useful than one that quietly
+  keeps testing an old one. The versions the tests are actually sensitive to — Python, uv,
+  Node and the Postgres image — are pinned explicitly instead.
+- CI's test step no longer appends `-q`. `addopts` already sets one and pytest reads a
+  second as a further drop in verbosity, so it suppressed the summary line: a green run
+  whose log never said how many tests ran, which is exactly the kind of detail that hides a
+  suite that quietly stopped collecting.
+- The repository was renamed to `metaedit`, so the in-repo links and the Last.fm
+  `User-Agent` URL now name it. They had been relying on GitHub's redirect for renamed
+  repositories, which works right up until someone creates a repository under the old
+  name — at which point the links quietly point somewhere else. `CHANGELOG.md` and
+  `src/metaedit/config.py` are the only two files affected.
+- `main` is protected by a ruleset that requires an approving code owner review, and
+  `.github/CODEOWNERS` now says who that is. Until this change the rule named nobody and
+  was therefore not enforcing anything.
+
 ## [0.0.2] - 2026-10-08
 
 ### Fixed
@@ -45,7 +108,7 @@ answered wrong.
 `domain/errors.py` had promised this from the start — "no upstream payload ever reaches a
 client verbatim" — so both leaks were omissions, not decisions.
 
-Found by [CodeQL code scanning](https://github.com/sredevopsorg/lastfm-api-tools/security/code-scanning),
+Found by [CodeQL code scanning](https://github.com/sredevopsorg/metaedit/security/code-scanning),
 which was enabled on this repository between the two releases.
 
 ### Notes
@@ -183,6 +246,6 @@ recorded because the *class* of mistake is more instructive than the instance.
 - The Last.fm Terms of Service cap stored Last.fm Data at 100 MB. Usage is measured and
   shown; nothing is deleted automatically, and reaching the cap refuses new writes instead.
 
-[Unreleased]: https://github.com/sredevopsorg/lastfm-api-tools/compare/v0.0.2...HEAD
-[0.0.2]: https://github.com/sredevopsorg/lastfm-api-tools/releases/tag/v0.0.2
-[0.0.1]: https://github.com/sredevopsorg/lastfm-api-tools/releases/tag/v0.0.1
+[Unreleased]: https://github.com/sredevopsorg/metaedit/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.2
+[0.0.1]: https://github.com/sredevopsorg/metaedit/releases/tag/v0.0.1
