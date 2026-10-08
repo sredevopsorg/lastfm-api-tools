@@ -228,6 +228,11 @@ class ArchiveEntityListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    sort: str = "name"
+    order: str = "asc"
+    # How many pages `total` and `page_size` imply, so a client does not have to do the
+    # arithmetic that goes wrong when the last page is partial.
+    pages: int = 1
 
 
 class ArchiveAliasView(BaseModel):

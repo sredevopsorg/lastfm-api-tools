@@ -41,6 +41,19 @@ from metaedit.db.models import (
     LastfmTrack,
 )
 from metaedit.db.session import get_session
+from metaedit.domain.archive_sort import (
+    DEFAULT_ORDER as ARCHIVE_DEFAULT_ORDER,
+)
+from metaedit.domain.archive_sort import (
+    DEFAULT_SORT as ARCHIVE_DEFAULT_SORT,
+)
+from metaedit.domain.archive_sort import (
+    SortKey as ArchiveSortKey,
+)
+from metaedit.domain.archive_sort import (
+    SortOrder as ArchiveSortOrder,
+)
+from metaedit.domain.archive_sort import order_by_clauses
 from metaedit.domain.errors import NotFoundError
 
 router = APIRouter(prefix="/archive", tags=["archive"])
@@ -83,11 +96,21 @@ async def archive_entities(
     search: Annotated[str | None, Query()] = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    sort: Annotated[
+        ArchiveSortKey, Query(description="field to order by; `id` breaks ties")
+    ] = ARCHIVE_DEFAULT_SORT,
+    order: Annotated[ArchiveSortOrder, Query(description="direction")] = ARCHIVE_DEFAULT_ORDER,
 ) -> dict[str, Any]:
     """Search the derived layer offline.
 
     Reads what the derivation produced and never touches the network: this is what
     answers "what do I already know about X" without spending a request.
+
+    Ordering always ends in a tiebreaker. `ORDER BY name` alone is not a total order --
+    8 album rows and 2 track rows share a name with another row, and Postgres may return
+    tied rows in a different order per query, so `OFFSET` paging could return one row
+    twice and another never. That was not theoretical: paging the live album table one
+    row at a time returned 109 rows with 108 distinct, duplicating id 90 and losing id 8.
     """
     model = _ENTITY_MODELS[kind]
     stmt = select(model)
@@ -107,7 +130,9 @@ async def archive_entities(
     fetched = (
         (
             await session.execute(
-                stmt.order_by(model.name).offset((page - 1) * page_size).limit(page_size)
+                stmt.order_by(*order_by_clauses(model, sort, order))
+                .offset((page - 1) * page_size)
+                .limit(page_size)
             )
         )
         .scalars()
@@ -119,6 +144,11 @@ async def archive_entities(
         "total": total,
         "page": page,
         "page_size": page_size,
+        "sort": sort,
+        "order": order,
+        # Computed here rather than in the client: a partial last page is where this
+        # arithmetic goes wrong, and there is exactly one right answer.
+        "pages": max(1, -(-total // page_size)),
     }
 
 

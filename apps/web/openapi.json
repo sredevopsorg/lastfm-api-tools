@@ -403,6 +403,11 @@
             "title": "Items",
             "type": "array"
           },
+          "order": {
+            "default": "asc",
+            "title": "Order",
+            "type": "string"
+          },
           "page": {
             "title": "Page",
             "type": "integer"
@@ -410,6 +415,16 @@
           "page_size": {
             "title": "Page Size",
             "type": "integer"
+          },
+          "pages": {
+            "default": 1,
+            "title": "Pages",
+            "type": "integer"
+          },
+          "sort": {
+            "default": "name",
+            "title": "Sort",
+            "type": "string"
           },
           "total": {
             "title": "Total",
@@ -3325,7 +3340,7 @@
     },
     "/api/archive/entities": {
       "get": {
-        "description": "Search the derived layer offline.\n\nReads what the derivation produced and never touches the network: this is what\nanswers \"what do I already know about X\" without spending a request.",
+        "description": "Search the derived layer offline.\n\nReads what the derivation produced and never touches the network: this is what\nanswers \"what do I already know about X\" without spending a request.\n\nOrdering always ends in a tiebreaker. `ORDER BY name` alone is not a total order --\n8 album rows and 2 track rows share a name with another row, and Postgres may return\ntied rows in a different order per query, so `OFFSET` paging could return one row\ntwice and another never. That was not theoretical: paging the live album table one\nrow at a time returned 109 rows with 108 distinct, duplicating id 90 and losing id 8.",
         "operationId": "archive_entities_api_archive_entities_get",
         "parameters": [
           {
@@ -3398,6 +3413,40 @@
               "minimum": 1,
               "title": "Page Size",
               "type": "integer"
+            }
+          },
+          {
+            "description": "field to order by; `id` breaks ties",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "name",
+              "description": "field to order by; `id` breaks ties",
+              "enum": [
+                "name",
+                "listeners",
+                "playcount",
+                "last_seen"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "direction",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "direction",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           }
         ],

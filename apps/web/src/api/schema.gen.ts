@@ -60,6 +60,12 @@ export interface paths {
          *
          *     Reads what the derivation produced and never touches the network: this is what
          *     answers "what do I already know about X" without spending a request.
+         *
+         *     Ordering always ends in a tiebreaker. `ORDER BY name` alone is not a total order --
+         *     8 album rows and 2 track rows share a name with another row, and Postgres may return
+         *     tied rows in a different order per query, so `OFFSET` paging could return one row
+         *     twice and another never. That was not theoretical: paging the live album table one
+         *     row at a time returned 109 rows with 108 distinct, duplicating id 90 and losing id 8.
          */
         get: operations["archive_entities_api_archive_entities_get"];
         put?: never;
@@ -697,10 +703,25 @@ export interface components {
         ArchiveEntityListResponse: {
             /** Items */
             items: components["schemas"]["ArchiveEntitySummary"][];
+            /**
+             * Order
+             * @default asc
+             */
+            order: string;
             /** Page */
             page: number;
             /** Page Size */
             page_size: number;
+            /**
+             * Pages
+             * @default 1
+             */
+            pages: number;
+            /**
+             * Sort
+             * @default name
+             */
+            sort: string;
             /** Total */
             total: number;
         };
@@ -1791,6 +1812,10 @@ export interface operations {
                 search?: string | null;
                 page?: number;
                 page_size?: number;
+                /** @description field to order by; `id` breaks ties */
+                sort?: "name" | "listeners" | "playcount" | "last_seen";
+                /** @description direction */
+                order?: "asc" | "desc";
             };
             header?: never;
             path?: never;
